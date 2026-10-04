@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+/previews/
+/out/
+/work/
+/models/
+/bin/
