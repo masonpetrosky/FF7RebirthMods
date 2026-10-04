@@ -7,6 +7,7 @@ import csv
 import re
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 from .game import package_path_from_file
@@ -36,6 +37,9 @@ def cmd_build(args: argparse.Namespace) -> None:
     game = Game(args.paks)
     pipe = Pipeline(game, args.model, Path(args.work), cached_only=args.cached_only)
     done, counts, start = [], {}, time.time()
+    # ETA comes from recent upscale times: cached items replay instantly after a resume, and textures
+    # are processed smallest first, so an overall average would badly underestimate what is left.
+    recent: deque[float] = deque(maxlen=50)
     for i, path in enumerate(packages, 1):
         try:
             result, r = pipe.process(path)
@@ -47,8 +51,10 @@ def cmd_build(args: argparse.Namespace) -> None:
         counts[key] = counts.get(key, 0) + 1
         if r is not None:
             done.append(path)
-        elapsed = time.time() - start
-        eta = elapsed / i * (len(packages) - i) / 3600
+        if result.status == "upscaled":
+            recent.append(result.seconds)
+        per_item = sum(recent) / len(recent) if recent else (time.time() - start) / i
+        eta = per_item * (len(packages) - i) / 3600
         print(f"[{i}/{len(packages)}] {result.status:9s} {result.seconds:5.1f}s eta {eta:4.1f}h {path}", flush=True)
     print(f"processed in {(time.time() - start) / 60:.1f} min: {counts}; writing container...", flush=True)
     # Results are re-created from the on-disk cache so they never all sit in memory at once.
