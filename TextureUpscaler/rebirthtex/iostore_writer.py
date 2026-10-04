@@ -111,36 +111,43 @@ def _directory_index(mount_point: str, files: list[tuple[str, int]]) -> bytes:
 
 def write_container(utoc_path: Path, container_id: int, chunks: list[tuple[bytes, bytes, str | None]],
                     mount_point: str = "../../../") -> None:
-    """chunks: (chunk id, data, path relative to the mount point or None)."""
+    """chunks: iterable of (chunk id, data, path relative to the mount point or None).
+
+    Chunk data is streamed straight to the .ucas, so arbitrarily large containers can be written."""
     utoc_path = Path(utoc_path)
-    ucas = bytearray()
+    utoc_path.parent.mkdir(parents=True, exist_ok=True)
+    ids: list[bytes] = []
+    paths: list[str | None] = []
     blocks: list[tuple[int, int, int]] = []
     offsets: list[tuple[int, int]] = []
     metas = bytearray()
     virtual = 0
-    for _cid, data, _path in chunks:
-        offsets.append((virtual, len(data)))
-        for start in range(0, max(len(data), 1), BLOCK_SIZE):
-            piece = data[start:start + BLOCK_SIZE]
-            if not piece:
-                break
-            blocks.append((len(ucas), len(piece), len(piece)))
-            ucas += piece
-            ucas += b"\0" * (-len(ucas) % 16)
-        virtual += -(-len(data) // BLOCK_SIZE) * BLOCK_SIZE
-        metas += hashlib.sha1(data).digest() + b"\0" * 12 + b"\0"
+    written = 0
+    with open(utoc_path.with_suffix(".ucas"), "wb") as ucas:
+        for cid, data, path in chunks:
+            ids.append(cid)
+            paths.append(path)
+            offsets.append((virtual, len(data)))
+            for start in range(0, len(data), BLOCK_SIZE):
+                piece = data[start:start + BLOCK_SIZE]
+                blocks.append((written, len(piece), len(piece)))
+                padding = -len(piece) % 16
+                ucas.write(piece + b"\0" * padding)
+                written += len(piece) + padding
+            virtual += -(-len(data) // BLOCK_SIZE) * BLOCK_SIZE
+            metas += hashlib.sha1(data).digest() + b"\0" * 12 + b"\0"
 
-    files = [(path, i) for i, (_c, _d, path) in enumerate(chunks) if path]
+    files = [(path, i) for i, path in enumerate(paths) if path]
     directory = _directory_index(mount_point, files) if files else b""
 
     header = bytearray(144)
     header[0:16] = TOC_MAGIC
-    struct.pack_into("<B3xIIIIIIIIIQ", header, 16, TOC_VERSION_DIRECTORY_INDEX, 144, len(chunks), len(blocks), 12,
+    struct.pack_into("<B3xIIIIIIIIIQ", header, 16, TOC_VERSION_DIRECTORY_INDEX, 144, len(ids), len(blocks), 12,
                      0, 32, BLOCK_SIZE, len(directory), 0, container_id)
     header[80] = FLAG_INDEXED if files else 0
 
     toc = bytearray(header)
-    for cid, _d, _p in chunks:
+    for cid in ids:
         toc += cid
     for offset, length in offsets:
         toc += offset.to_bytes(5, "big") + length.to_bytes(5, "big")
@@ -148,10 +155,7 @@ def write_container(utoc_path: Path, container_id: int, chunks: list[tuple[bytes
         toc += offset.to_bytes(5, "little") + comp.to_bytes(3, "little") + raw.to_bytes(3, "little") + b"\0"
     toc += directory
     toc += metas
-
-    utoc_path.parent.mkdir(parents=True, exist_ok=True)
     utoc_path.write_bytes(toc)
-    utoc_path.with_suffix(".ucas").write_bytes(ucas)
 
 
 def container_header_chunk_id(container_id: int) -> bytes:

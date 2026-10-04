@@ -22,8 +22,9 @@ def select(inventory_csv: str, pattern: str, min_size: int, max_size: int, suffi
         size = max(int(r["width"]), int(r["height"]))
         if (regex.search(r["path"]) and min_size <= size <= max_size and name.endswith(suffix + ".uasset")
                 and r["format"] in ("PF_DXT1", "PF_BC7")):
-            out.append(package_path_from_file(r["path"]))
-    return sorted(set(out))
+            out.append((size, package_path_from_file(r["path"])))
+    # Smallest first: those gain the most from upscaling, so an interrupted run still covers the best cases.
+    return [path for _size, path in sorted(set(out))]
 
 
 def cmd_build(args: argparse.Namespace) -> None:
@@ -34,7 +35,7 @@ def cmd_build(args: argparse.Namespace) -> None:
     print(f"{len(packages)} textures selected", flush=True)
     game = Game(args.paks)
     pipe = Pipeline(game, args.model, Path(args.work))
-    resized, counts, start = {}, {}, time.time()
+    done, counts, start = [], {}, time.time()
     for i, path in enumerate(packages, 1):
         try:
             result, r = pipe.process(path)
@@ -45,10 +46,14 @@ def cmd_build(args: argparse.Namespace) -> None:
         key = result.status.split(":")[0]
         counts[key] = counts.get(key, 0) + 1
         if r is not None:
-            resized[path] = r
-        print(f"[{i}/{len(packages)}] {result.status:9s} {result.seconds:5.1f}s {path}", flush=True)
-    utoc = write_mod(Path(args.out), args.mod_name, resized)
-    print(f"done in {(time.time() - start) / 60:.1f} min: {counts}; wrote {len(resized)} textures to {utoc}")
+            done.append(path)
+        elapsed = time.time() - start
+        eta = elapsed / i * (len(packages) - i) / 3600
+        print(f"[{i}/{len(packages)}] {result.status:9s} {result.seconds:5.1f}s eta {eta:4.1f}h {path}", flush=True)
+    print(f"processed in {(time.time() - start) / 60:.1f} min: {counts}; writing container...", flush=True)
+    # Results are re-created from the on-disk cache so they never all sit in memory at once.
+    utoc = write_mod(Path(args.out), args.mod_name, ((path, pipe.process(path)[1]) for path in done))
+    print(f"wrote {len(done)} textures to {utoc}")
 
 
 def main(argv: list[str]) -> None:

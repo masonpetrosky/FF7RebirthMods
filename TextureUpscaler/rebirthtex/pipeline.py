@@ -111,21 +111,24 @@ class Pipeline:
         return Result(package_path, "upscaled", time.time() - start), add_top_mip(tp, payload, width, height)
 
 
-def write_mod(out_dir: Path, mod_name: str, textures: dict[str, ResizedTexture]) -> Path:
+def write_mod(out_dir: Path, mod_name: str, items) -> Path:
+    """items: iterable of (package path, ResizedTexture); consumed lazily so memory stays flat."""
     container_id = ue_hash(mod_name)
     entries = {}
-    chunks = [None]
-    for package_path, r in sorted(textures.items()):
-        package_id = ue_hash(package_path)
-        entries[package_id] = r.store_entry
-        relative = file_path_from_package(package_path)
-        chunks.append((chunk_id(package_id, EXPORT_BUNDLE_DATA), r.package, relative + ".uasset"))
-        chunks.append((chunk_id(package_id, BULK_DATA), r.bulk, relative + ".ubulk"))
-    chunks[0] = (iostore_writer.container_header_chunk_id(container_id),
-                 iostore_writer.build_container_header(container_id, entries), None)
+
+    def chunks():
+        for package_path, r in items:
+            package_id = ue_hash(package_path)
+            entries[package_id] = r.store_entry
+            relative = file_path_from_package(package_path)
+            yield chunk_id(package_id, EXPORT_BUNDLE_DATA), r.package, relative + ".uasset"
+            yield chunk_id(package_id, BULK_DATA), r.bulk, relative + ".ubulk"
+        yield (iostore_writer.container_header_chunk_id(container_id),
+               iostore_writer.build_container_header(container_id, entries), None)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     utoc = out_dir / f"{mod_name}.utoc"
-    iostore_writer.write_container(utoc, container_id, chunks)
+    iostore_writer.write_container(utoc, container_id, chunks())
     with tempfile.TemporaryDirectory() as empty:
         subprocess.run([str(REPAK), "pack", "--version", "V11", "--mount-point", "/", empty,
                         str(out_dir / f"{mod_name}.pak")], check=True, capture_output=True)
