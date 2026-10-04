@@ -16,6 +16,8 @@ DEPENDENCIES = [
      "dcfdec10244e02cf5037fba089c55fb7e1326b1c8181742d77d15fa5cb5eef06", None, ROOT / "bin" / "texconv.exe"),
     ("https://github.com/trumank/repak/releases/download/v0.2.3/repak_cli-x86_64-pc-windows-msvc.zip",
      "6720d602144d75df477a99d5bedb6ea780997546afc335901d4937cafeaa73fa", "repak.exe", ROOT / "bin" / "repak.exe"),
+    ("https://github.com/GameTechDev/PresentMon/releases/download/v2.5.1/PresentMon-2.5.1-x64.exe",
+     "9bec3083069f58f911e6a512f4806db51a27bd096103087bc1d05ef54c80a191", None, ROOT / "bin" / "PresentMon.exe"),
     ("https://github.com/Kim2091/PBRify_Remix/releases/download/v1.7.2_ComfyOnly/PBRify_Remix_1.7.2_ComfyUI_ONLY.zip",
      "d9755a1e97cd299eb61f8a9420f52478dc7df5da0fdc9e60890c763eae3a8c95", "4x-PBRify-UpscalerV4.safetensors",
      ROOT / "models" / "4x-PBRify-UpscalerV4.safetensors"),
