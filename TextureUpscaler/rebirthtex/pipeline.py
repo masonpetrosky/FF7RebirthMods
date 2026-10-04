@@ -56,8 +56,9 @@ class Result:
 
 
 class Pipeline:
-    def __init__(self, game: Game, model_path: str, work_dir: Path, srgb: bool = True):
+    def __init__(self, game: Game, model_path: str, work_dir: Path, srgb: bool = True, cached_only: bool = False):
         self.game = game
+        self.cached_only = cached_only
         self.model_path = model_path
         self.work_dir = Path(work_dir)
         self.srgb = srgb
@@ -88,6 +89,8 @@ class Pipeline:
         if cache.exists():
             payload = cache.read_bytes()
             return Result(package_path, "cached", time.time() - start), add_top_mip(tp, payload, width, height)
+        if self.cached_only:
+            return Result(package_path, "skipped: not upscaled yet"), None
 
         with tempfile.TemporaryDirectory() as tmp_name:
             tmp = Path(tmp_name)

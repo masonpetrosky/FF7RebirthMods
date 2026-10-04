@@ -34,7 +34,7 @@ def cmd_build(args: argparse.Namespace) -> None:
     packages = select(args.inventory, args.match, args.min_size, args.max_size, args.suffix)
     print(f"{len(packages)} textures selected", flush=True)
     game = Game(args.paks)
-    pipe = Pipeline(game, args.model, Path(args.work))
+    pipe = Pipeline(game, args.model, Path(args.work), cached_only=args.cached_only)
     done, counts, start = [], {}, time.time()
     for i, path in enumerate(packages, 1):
         try:
@@ -74,6 +74,7 @@ def main(argv: list[str]) -> None:
     build.add_argument("--work", default="work")
     build.add_argument("--out", default="out")
     build.add_argument("--mod-name", default="FF7RebirthTextureUpscaler_P")
+    build.add_argument("--cached-only", action="store_true", help="only pack textures that are already upscaled")
     args = parser.parse_args(argv)
     if args.command == "setup":
         from .setup_deps import main as setup_main

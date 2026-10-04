@@ -76,7 +76,8 @@ def main(label: str, seconds: str = "90") -> None:
     stop = threading.Event()
     sampler = threading.Thread(target=sample_gpu, args=(out_dir / f"{stem}_gpu.csv", stop), daemon=True)
     sampler.start()
-    args = ["--process_name", GAME_PROCESS, "--output_file", str(frames), "--timed", str(seconds_i),
+    # --delay skips the first seconds, so the UAC desktop switch is never part of a capture.
+    args = ["--process_name", GAME_PROCESS, "--output_file", str(frames), "--delay", "3", "--timed", str(seconds_i),
             "--terminate_after_timed", "--stop_existing_session", "--no_console_stats"]
     arg_list = ",".join("'" + a.replace("'", "''") + "'" for a in args)
     print(f"capturing {seconds_i}s as '{label}' (approve the UAC prompt for PresentMon)...", flush=True)
