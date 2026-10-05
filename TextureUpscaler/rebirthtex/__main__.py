@@ -33,6 +33,11 @@ def cmd_build(args: argparse.Namespace) -> None:
     from .pipeline import Pipeline, write_mod
 
     packages = select(args.inventory, args.match, args.min_size, args.max_size, args.suffix)
+    if args.exclude:
+        lines = (line.split("#", 1)[0].strip() for line in open(args.exclude, encoding="utf-8"))
+        excluded = {line for line in lines if line}
+        packages = [path for path in packages if path not in excluded]
+        print(f"{len(excluded)} textures excluded by {args.exclude}", flush=True)
     print(f"{len(packages)} textures selected", flush=True)
     game = Game(args.paks)
     pipe = Pipeline(game, args.model, Path(args.work), cached_only=args.cached_only)
@@ -81,6 +86,7 @@ def main(argv: list[str]) -> None:
     build.add_argument("--out", default="out")
     build.add_argument("--mod-name", default="FF7RebirthTextureUpscaler_P")
     build.add_argument("--cached-only", action="store_true", help="only pack textures that are already upscaled")
+    build.add_argument("--exclude", help="file of package paths (one per line, # comments) to keep at original size")
     args = parser.parse_args(argv)
     if args.command == "setup":
         from .setup_deps import main as setup_main
