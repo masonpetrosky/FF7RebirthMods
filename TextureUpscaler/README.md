@@ -17,7 +17,11 @@ you run it against your own installation.
   so textures look exactly as authored at normal distances and gain detail up close. Every
   rewritten package is re-parsed and verified.
 - `rebirthtex.upscale` runs a spandrel-loaded model on the GPU with tiling and wrap padding
-  (seamless for tiling textures), then downsamples the 4x result to 2x in linear light.
+  (seamless for tiling textures), then downsamples the 4x result to 2x in linear light and
+  matches its low-frequency colours to the original, so the model adds detail without shifting
+  brightness or saturation where the GPU blends between the new and the original top mip.
+- `toolsudit_mod.py` ranks the textures in a build by how much they change the look, to pick
+  any to keep at their original size (`build --exclude`); see `docsatch.md`.
 - texconv (DirectXTex) re-encodes to the texture's original block format.
 
 ## Usage
