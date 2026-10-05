@@ -13,17 +13,19 @@ The optional contact sheet shows the N most suspicious textures (default 24) as 
 from __future__ import annotations
 
 import csv
+import os
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rebirthtex import dds, iostore_writer, pipeline, texture  # noqa: E402
+from rebirthtex import dds, pipeline, texture  # noqa: E402
 from rebirthtex.game import Game, package_path_from_file  # noqa: E402
-from rebirthtex.iostore import BULK_DATA, CONTAINER_HEADER, EXPORT_BUNDLE_DATA, IoStoreReader, chunk_id, chunk_type  # noqa: E402
+from rebirthtex.iostore import BULK_DATA, EXPORT_BUNDLE_DATA, IoStoreReader, chunk_id  # noqa: E402
 from rebirthtex.zen import ZenPackage  # noqa: E402
 
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
@@ -35,14 +37,20 @@ def decode(pixel_format: str, width: int, height: int, data: bytes, tmp: Path) -
     return np.frombuffer(dds.read(tmp / "a_x.dds")[3][0], np.uint8).reshape(height, width, 4)
 
 
-def linear(x: np.ndarray) -> np.ndarray:
-    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+_LEVELS = np.arange(256) / 255
+LINEAR = np.where(_LEVELS <= 0.04045, _LEVELS / 12.92, ((_LEVELS + 0.055) / 1.055) ** 2.4).astype(np.float32)
+
+
+def to_srgb(x: np.ndarray) -> np.ndarray:
+    return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(np.clip(x, 0, None), 1 / 2.4) - 0.055)
 
 
 def box_blur(x: np.ndarray, radius: int) -> np.ndarray:
-    """Wrapping box blur over the first two axes."""
-    for axis in (0, 1):
-        x = sum(np.roll(x, s, axis=axis) for s in range(-radius, radius + 1)) / (2 * radius + 1)
+    """Wrapping box blur over the first two axes, from running sums."""
+    for _ in range(2):
+        n = len(x)
+        sums = np.cumsum(np.concatenate([x[n - radius - 1:], x, x[:radius]]), axis=0, dtype=np.float64)
+        x = ((sums[2 * radius + 1:] - sums[:n]) / (2 * radius + 1)).astype(np.float32).swapaxes(0, 1)
     return x
 
 
@@ -52,22 +60,22 @@ def metrics(old: np.ndarray, new: np.ndarray) -> dict[str, float]:
     mask = (old[..., 3] >= 128).astype(np.float32)
     if mask.sum() < 16:
         mask[:] = 1
-    o = linear(old[..., :3].astype(np.float32) / 255)
-    n = linear(new[..., :3].astype(np.float32) / 255).reshape(h, 2, w, 2, 3).mean(axis=(1, 3))
     m3 = mask[..., None]
-    cover = box_blur(mask, 3)[..., None] + 1e-6
+    o = LINEAR[old[..., :3]]
+    n = LINEAR[new[..., :3]].reshape(h, 2, w, 2, 3).mean(axis=(1, 3))
+    cover = box_blur(m3, 3) + 1e-6
     err = box_blur((n - o) * m3, 3) / cover
     ref = box_blur(o * m3, 3) / cover
     lf = float((np.abs(err) / (ref + 0.02) * m3).sum() / (m3.sum() * 3) * 100)
-    srgb = lambda v: np.where(v <= 0.0031308, v * 12.92, 1.055 * np.power(np.clip(v, 0, None), 1 / 2.4) - 0.055)
-    mad = float((np.abs(srgb(n) - srgb(o)) * 255 * m3).sum() / (m3.sum() * 3))
+    o_srgb, n_srgb = old[..., :3].astype(np.float32) / 255, to_srgb(n)
+    mad = float((np.abs(n_srgb - o_srgb) * 255 * m3).sum() / (m3.sum() * 3))
 
     def gradients(img: np.ndarray) -> np.ndarray:
-        y = srgb(img) @ LUMA * 255
+        y = img @ LUMA * 255
         g = np.abs(np.diff(y, axis=0))[:, :-1] + np.abs(np.diff(y, axis=1))[:-1, :]
         return g * mask[:-1, :-1]
 
-    go, gn = gradients(o), gradients(n)
+    go, gn = gradients(o_srgb), gradients(n_srgb)
     grain = (gn.mean() + 0.5) / (go.mean() + 0.5)
     sharp = ((gn ** 2).mean() + 1) / (gn.mean() + 1) / (((go ** 2).mean() + 1) / (go.mean() + 1))
     return {"lf": lf, "mad": mad, "grain": float(grain), "sharp": float(sharp)}
@@ -117,23 +125,35 @@ def sheet(game: Game, mod: IoStoreReader, rows: list[dict], out: Path, crop: int
     canvas.save(out)
 
 
+_worker: dict = {}
+
+
+def _start_worker(paks: str, utoc: str) -> None:
+    _worker["game"], _worker["mod"] = Game(paks), IoStoreReader(utoc)
+
+
+def _audit(path: str) -> dict:
+    game, mod = _worker["game"], _worker["mod"]
+    orig = game.load_texture(path)
+    zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
+    tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
+    top, o = tex.mips[0], orig.texture
+    bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
+    with tempfile.TemporaryDirectory() as t:
+        new = decode(tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size], Path(t))
+        old = decode(o.pixel_format, o.width, o.height, orig.mip_data(0), Path(t))
+    return {"path": path, "size": o.width, **metrics(old, new)}
+
+
 def main(paks: str, utoc: str, out_csv: str, *rest: str) -> None:
-    game, mod = Game(paks), IoStoreReader(utoc)
-    _cid, _entries = iostore_writer.parse_container_header(
-        mod.read(next(c for c in mod.chunk_ids if chunk_type(c) == CONTAINER_HEADER)))
+    mod = IoStoreReader(utoc)
     packages = sorted(package_path_from_file(p) for p in mod.paths.values() if p.endswith(".uasset"))
     rows = []
-    with tempfile.TemporaryDirectory() as t:
-        tmp = Path(t)
-        for n, path in enumerate(packages, 1):
-            orig = game.load_texture(path)
-            zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
-            tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
-            top, o = tex.mips[0], orig.texture
-            bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
-            new = decode(tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size], tmp)
-            old = decode(o.pixel_format, o.width, o.height, orig.mip_data(0), tmp)
-            rows.append({"path": path, "size": o.width, **metrics(old, new)})
+    # Each texture is independent; a third of the CPU threads leaves room for a build running alongside.
+    with ProcessPoolExecutor(max(1, (os.cpu_count() or 3) // 3), initializer=_start_worker,
+                             initargs=(paks, utoc)) as pool:
+        for n, row in enumerate(pool.map(_audit, packages, chunksize=8), 1):
+            rows.append(row)
             if n % 1000 == 0:
                 print(f"{n}/{len(packages)} audited", flush=True)
     for r in rows:
@@ -153,7 +173,7 @@ def main(paks: str, utoc: str, out_csv: str, *rest: str) -> None:
               f"sharp {r['sharp']:4.2f}  {r['path']}")
     if rest and rest[0] == "--sheet":
         count = int(rest[2]) if len(rest) > 2 else 24
-        sheet(game, mod, rows[:count], Path(rest[1]))
+        sheet(Game(paks), mod, rows[:count], Path(rest[1]))
         print(f"contact sheet: {rest[1]}")
 
 
