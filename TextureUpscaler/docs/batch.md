@@ -37,3 +37,5 @@ grain (`grain`) and soft edges made hard (`sharp`). It prints the most suspiciou
 the top N as original | new crops. Textures where the model changed the look rather than adding
 detail (for example an emissive map whose soft glow became hard-edged blobs) go into an exclude
 file; then rebuild with `--cached-only --exclude <file>` (minutes, nothing is upscaled again).
+`docs\exclude-pbrify-v4.txt` is the reviewed list for the environment colour textures with the PBRify
+V4 model (5 of 10,271 textures, all soft patterns the model made hard-edged or blotchy).
