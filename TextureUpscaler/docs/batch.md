@@ -28,3 +28,12 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'batch_supe
 ```
 
 On an RTX 5070 Ti a 1024 px texture takes about 6.4 s with the PBRify DAT model.
+
+## Reviewing a build
+
+`tools\audit_mod.py <Paks dir> <mod .utoc> <out .csv> --sheet <out .png> [N]` compares every new top
+mip, shrunk back to the original size, with the original: colour/brightness drift (`lf`), added
+grain (`grain`) and soft edges made hard (`sharp`). It prints the most suspicious textures and draws
+the top N as original | new crops. Textures where the model changed the look rather than adding
+detail (for example an emissive map whose soft glow became hard-edged blobs) go into an exclude
+file; then rebuild with `--cached-only --exclude <file>` (minutes, nothing is upscaled again).

@@ -1,0 +1,161 @@
+"""Ranks the upscaled textures in a built mod container by how much they depart from the original look,
+to pick candidates for `build --exclude`. Each new top mip is box-downscaled back to the original size
+(in linear light, like the GPU's mip filtering) and compared with the original top mip:
+
+  lf     low-frequency brightness/colour error, % - visible where the GPU switches between the two mips
+  mad    mean absolute difference, 0-255
+  grain  ratio of total gradient (new / original) - texture or noise the model added
+  sharp  ratio of gradient energy over total gradient (new / original) - soft edges made hard
+
+Usage: audit_mod.py <Paks dir> <mod .utoc> <out .csv> [--sheet <out .png> [N]]
+The optional contact sheet shows the N most suspicious textures (default 24) as original | new crops."""
+
+from __future__ import annotations
+
+import csv
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from rebirthtex import dds, iostore_writer, pipeline, texture  # noqa: E402
+from rebirthtex.game import Game, package_path_from_file  # noqa: E402
+from rebirthtex.iostore import BULK_DATA, CONTAINER_HEADER, EXPORT_BUNDLE_DATA, IoStoreReader, chunk_id, chunk_type  # noqa: E402
+from rebirthtex.zen import ZenPackage  # noqa: E402
+
+LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
+
+
+def decode(pixel_format: str, width: int, height: int, data: bytes, tmp: Path) -> np.ndarray:
+    dds.write(tmp / "a.dds", width, height, dds.dxgi_format(pixel_format, False), [data])
+    pipeline._texconv(["-f", "R8G8B8A8_UNORM", "-m", "1", "-sx", "_x", "-o", str(tmp), str(tmp / "a.dds")])
+    return np.frombuffer(dds.read(tmp / "a_x.dds")[3][0], np.uint8).reshape(height, width, 4)
+
+
+def linear(x: np.ndarray) -> np.ndarray:
+    return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+
+def box_blur(x: np.ndarray, radius: int) -> np.ndarray:
+    """Wrapping box blur over the first two axes."""
+    for axis in (0, 1):
+        x = sum(np.roll(x, s, axis=axis) for s in range(-radius, radius + 1)) / (2 * radius + 1)
+    return x
+
+
+def metrics(old: np.ndarray, new: np.ndarray) -> dict[str, float]:
+    """old: HxWx4 original, new: 2Hx2Wx4 upscale (uint8). Opaque texels only when the original has alpha."""
+    h, w = old.shape[:2]
+    mask = (old[..., 3] >= 128).astype(np.float32)
+    if mask.sum() < 16:
+        mask[:] = 1
+    o = linear(old[..., :3].astype(np.float32) / 255)
+    n = linear(new[..., :3].astype(np.float32) / 255).reshape(h, 2, w, 2, 3).mean(axis=(1, 3))
+    m3 = mask[..., None]
+    cover = box_blur(mask, 3)[..., None] + 1e-6
+    err = box_blur((n - o) * m3, 3) / cover
+    ref = box_blur(o * m3, 3) / cover
+    lf = float((np.abs(err) / (ref + 0.02) * m3).sum() / (m3.sum() * 3) * 100)
+    srgb = lambda v: np.where(v <= 0.0031308, v * 12.92, 1.055 * np.power(np.clip(v, 0, None), 1 / 2.4) - 0.055)
+    mad = float((np.abs(srgb(n) - srgb(o)) * 255 * m3).sum() / (m3.sum() * 3))
+
+    def gradients(img: np.ndarray) -> np.ndarray:
+        y = srgb(img) @ LUMA * 255
+        g = np.abs(np.diff(y, axis=0))[:, :-1] + np.abs(np.diff(y, axis=1))[:-1, :]
+        return g * mask[:-1, :-1]
+
+    go, gn = gradients(o), gradients(n)
+    grain = (gn.mean() + 0.5) / (go.mean() + 0.5)
+    sharp = ((gn ** 2).mean() + 1) / (gn.mean() + 1) / (((go ** 2).mean() + 1) / (go.mean() + 1))
+    return {"lf": lf, "mad": mad, "grain": float(grain), "sharp": float(sharp)}
+
+
+def suspicion(r: dict) -> float:
+    """Single ranking score: anything well beyond the typical result (lf ~1%, grain ~1.05, sharp ~1.1)."""
+    return max(r["lf"] / 3, (r["grain"] - 1) / 0.6, (r["sharp"] - 1) / 0.6, r["mad"] / 8)
+
+
+def sheet(game: Game, mod: IoStoreReader, rows: list[dict], out: Path, crop: int = 256) -> None:
+    from PIL import Image, ImageDraw
+    tiles = []
+    with tempfile.TemporaryDirectory() as t:
+        tmp = Path(t)
+        for r in rows:
+            orig = game.load_texture(r["path"])
+            o = orig.texture
+            zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
+            tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
+            top = tex.mips[0]
+            bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
+            new = decode(tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size], tmp)
+            old = decode(o.pixel_format, o.width, o.height, orig.mip_data(0), tmp)
+            gray = lambda a: Image.fromarray((a[..., :3] * (a[..., 3:] / 255) + 128 * (1 - a[..., 3:] / 255)).astype(np.uint8))
+            a = gray(np.asarray(Image.fromarray(old).resize((top.width, top.height), Image.BICUBIC)))
+            b = gray(new)
+            diff = np.abs(np.asarray(a.convert("L"), np.float32) - np.asarray(b.convert("L"), np.float32))
+            c = min(crop, top.width, top.height)
+            best, by, bx = -1.0, 0, 0
+            for y in range(0, top.height - c + 1, max(1, c // 2)):
+                for x in range(0, top.width - c + 1, max(1, c // 2)):
+                    v = float(diff[y:y + c, x:x + c].mean())
+                    if v > best:
+                        best, by, bx = v, y, x
+            box = (bx, by, bx + c, by + c)
+            tiles.append((r, a.crop(box).resize((crop, crop)), b.crop(box).resize((crop, crop))))
+    cols = 2
+    canvas = Image.new("RGB", (cols * (2 * crop + 30), ((len(tiles) + cols - 1) // cols) * (crop + 22)), "white")
+    draw = ImageDraw.Draw(canvas)
+    for i, (r, a, b) in enumerate(tiles):
+        x0, y0 = (i % cols) * (2 * crop + 30), (i // cols) * (crop + 22)
+        draw.text((x0 + 2, y0 + 2), f"{i + 1}. {r['path'].rsplit('/', 1)[1]}  lf {r['lf']:.1f}% grain {r['grain']:.2f} "
+                  f"sharp {r['sharp']:.2f}", fill="black")
+        canvas.paste(a, (x0, y0 + 18))
+        canvas.paste(b, (x0 + crop + 4, y0 + 18))
+    canvas.save(out)
+
+
+def main(paks: str, utoc: str, out_csv: str, *rest: str) -> None:
+    game, mod = Game(paks), IoStoreReader(utoc)
+    _cid, _entries = iostore_writer.parse_container_header(
+        mod.read(next(c for c in mod.chunk_ids if chunk_type(c) == CONTAINER_HEADER)))
+    packages = sorted(package_path_from_file(p) for p in mod.paths.values() if p.endswith(".uasset"))
+    rows = []
+    with tempfile.TemporaryDirectory() as t:
+        tmp = Path(t)
+        for n, path in enumerate(packages, 1):
+            orig = game.load_texture(path)
+            zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
+            tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
+            top, o = tex.mips[0], orig.texture
+            bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
+            new = decode(tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size], tmp)
+            old = decode(o.pixel_format, o.width, o.height, orig.mip_data(0), tmp)
+            rows.append({"path": path, "size": o.width, **metrics(old, new)})
+            if n % 1000 == 0:
+                print(f"{n}/{len(packages)} audited", flush=True)
+    for r in rows:
+        r["suspicion"] = suspicion(r)
+    rows.sort(key=lambda r: -r["suspicion"])
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows({k: (f"{v:.3f}" if isinstance(v, float) else v) for k, v in r.items()} for r in rows)
+    for key in ("lf", "mad", "grain", "sharp"):
+        values = np.array([r[key] for r in rows])
+        print(f"{key:6s} median {np.median(values):6.2f}  p95 {np.percentile(values, 95):6.2f}  "
+              f"p99 {np.percentile(values, 99):6.2f}  max {values.max():6.2f}")
+    print(f"{sum(r['suspicion'] > 1 for r in rows)} of {len(rows)} beyond the typical range; most suspicious:")
+    for r in rows[:15]:
+        print(f"  {r['suspicion']:5.2f}  lf {r['lf']:5.1f}%  mad {r['mad']:5.1f}  grain {r['grain']:4.2f}  "
+              f"sharp {r['sharp']:4.2f}  {r['path']}")
+    if rest and rest[0] == "--sheet":
+        count = int(rest[2]) if len(rest) > 2 else 24
+        sheet(game, mod, rows[:count], Path(rest[1]))
+        print(f"contact sheet: {rest[1]}")
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:])
