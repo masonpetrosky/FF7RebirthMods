@@ -16,6 +16,7 @@ import csv
 import os
 import sys
 import tempfile
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -125,37 +126,41 @@ def sheet(game: Game, mod: IoStoreReader, rows: list[dict], out: Path, crop: int
     canvas.save(out)
 
 
-_worker: dict = {}
-
-
-def _start_worker(paks: str, utoc: str) -> None:
-    _worker["game"], _worker["mod"] = Game(paks), IoStoreReader(utoc)
-
-
-def _audit(path: str) -> dict:
-    game, mod = _worker["game"], _worker["mod"]
-    orig = game.load_texture(path)
-    zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
-    tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
-    top, o = tex.mips[0], orig.texture
-    bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
+def _measure(item: tuple) -> dict:
+    """Runs in a worker: decodes one texture pair and measures it."""
+    path, old_args, new_args = item
     with tempfile.TemporaryDirectory() as t:
-        new = decode(tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size], Path(t))
-        old = decode(o.pixel_format, o.width, o.height, orig.mip_data(0), Path(t))
-    return {"path": path, "size": o.width, **metrics(old, new)}
+        old, new = decode(*old_args, Path(t)), decode(*new_args, Path(t))
+    return {"path": path, "size": old_args[1], **metrics(old, new)}
+
+
+def _pairs(game: Game, mod: IoStoreReader, packages: list[str]):
+    """(path, original top mip, new top mip) per texture, read here so the workers stay small."""
+    for path in packages:
+        orig = game.load_texture(path)
+        zen = ZenPackage(mod.read(chunk_id(orig.package_id, EXPORT_BUNDLE_DATA)))
+        tex = texture.parse(zen.export_data(next(e for e in zen.exports if e.class_index == texture.TEXTURE2D_CLASS)))
+        top, o = tex.mips[0], orig.texture
+        bulk = mod.read(chunk_id(orig.package_id, BULK_DATA))
+        yield (path, (o.pixel_format, o.width, o.height, orig.mip_data(0)),
+               (tex.pixel_format, top.width, top.height, bulk[top.offset:top.offset + top.size]))
 
 
 def main(paks: str, utoc: str, out_csv: str, *rest: str) -> None:
-    mod = IoStoreReader(utoc)
+    game, mod = Game(paks), IoStoreReader(utoc)
     packages = sorted(package_path_from_file(p) for p in mod.paths.values() if p.endswith(".uasset"))
-    rows = []
-    # Each texture is independent; a third of the CPU threads leaves room for a build running alongside.
-    with ProcessPoolExecutor(max(1, (os.cpu_count() or 3) // 3), initializer=_start_worker,
-                             initargs=(paks, utoc)) as pool:
-        for n, row in enumerate(pool.map(_audit, packages, chunksize=8), 1):
-            rows.append(row)
-            if n % 1000 == 0:
-                print(f"{n}/{len(packages)} audited", flush=True)
+    rows: list[dict] = []
+    # A few workers and a bounded queue keep memory low next to a running build (~0.3 GB per worker).
+    workers = max(1, min(4, (os.cpu_count() or 4) // 4))
+    with ProcessPoolExecutor(workers) as pool:
+        pending: deque = deque()
+        for item in _pairs(game, mod, packages):
+            pending.append(pool.submit(_measure, item))
+            if len(pending) >= 2 * workers:
+                rows.append(pending.popleft().result())
+                if len(rows) % 1000 == 0:
+                    print(f"{len(rows)}/{len(packages)} audited", flush=True)
+        rows.extend(f.result() for f in pending)
     for r in rows:
         r["suspicion"] = suspicion(r)
     rows.sort(key=lambda r: -r["suspicion"])
@@ -173,7 +178,7 @@ def main(paks: str, utoc: str, out_csv: str, *rest: str) -> None:
               f"sharp {r['sharp']:4.2f}  {r['path']}")
     if rest and rest[0] == "--sheet":
         count = int(rest[2]) if len(rest) > 2 else 24
-        sheet(Game(paks), mod, rows[:count], Path(rest[1]))
+        sheet(game, mod, rows[:count], Path(rest[1]))
         print(f"contact sheet: {rest[1]}")
 
 
