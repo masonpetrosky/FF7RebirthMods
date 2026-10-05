@@ -1,7 +1,12 @@
 # Running long batches
 
-Upscaled mips are cached in `work\cache\<model>\`, so a build can be stopped at any time and
-restarted with the same command; finished textures are reused instantly.
+Upscaled mips are cached in `work\cache\<model>-cf\` (`work\cache\<model>\` with `--no-color-fix`),
+so a build can be stopped at any time and restarted with the same command; finished textures are
+reused instantly. To reuse results made with other settings - for example a cache from before the
+colour fix existed - add `--fallback-cache work\cache\<folder>`: textures found there are packed as
+they are, everything else is upscaled with the current settings. `--exclude <file>` keeps the listed
+package paths (one per line, `#` comments allowed) at their original size, e.g. textures where the
+model changed the look instead of adding detail.
 
 `tools\batch_supervisor.py` runs a build only while the game is closed: it stops the build
 within 30 s of the game starting and restarts it once the game has been closed for 10 minutes.
@@ -21,3 +26,5 @@ Progress and the supervisor's pause/resume events go to `work\full.log`. To stop
 Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'batch_supervisor|rebirthtex build|verify_mod' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 ```
+
+On an RTX 5070 Ti a 1024 px texture takes about 6.4 s with the PBRify DAT model.
