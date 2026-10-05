@@ -63,14 +63,16 @@ class Upscaler:
         return self.model(x.half() if self.half else x).float()
 
     @torch.inference_mode()
-    def upscale(self, image: np.ndarray, wrap: bool = True, shrink: int = 1, srgb: bool = True) -> np.ndarray:
+    def upscale(self, image: np.ndarray, wrap: bool = True, shrink: int = 1, srgb: bool = True, match: bool = False,
+                mask: np.ndarray | None = None) -> np.ndarray:
         """image: HxWx3 float32 in [0, 1] (sRGB-encoded for color). Returns (H*s/shrink)x(W*s/shrink)x3:
-        shrink box-filters the model output on the GPU, in linear light when srgb is set."""
+        shrink box-filters the model output on the GPU, in linear light when srgb is set. match applies
+        match_colors against the input; mask (HxW in [0, 1], e.g. alpha) marks the input texels it uses."""
         h, w, _ = image.shape
         pad = self.overlap
-        x = torch.from_numpy(image).permute(2, 0, 1)[None].cuda()
+        source = torch.from_numpy(image).permute(2, 0, 1)[None].cuda()
         # Wrap padding keeps tileable textures seamless; reflect is the fallback for atlases.
-        x = F.pad(x, (pad, pad, pad, pad), mode="circular" if wrap else "reflect")
+        x = F.pad(source, (pad, pad, pad, pad), mode="circular" if wrap else "reflect")
         s = self.scale
         out = torch.zeros((1, 3, (h + 2 * pad) * s, (w + 2 * pad) * s), device="cuda")
         weight = torch.zeros_like(out[:, :1])
@@ -92,6 +94,9 @@ class Upscaler:
         out = (out / weight)[:, :, pad * s:(pad + h) * s, pad * s:(pad + w) * s].clamp(0, 1)
         if shrink > 1:
             out = downscale(out, shrink, srgb)
+        if match:
+            weights = None if mask is None else torch.from_numpy(mask)[None, None].cuda()
+            out = match_colors(out, source, srgb, wrap, weights)
         return out[0].permute(1, 2, 0).cpu().numpy()
 
 
@@ -108,3 +113,37 @@ def downscale(image: torch.Tensor, factor: int, srgb: bool) -> torch.Tensor:
     data = srgb_to_linear(image) if srgb else image
     data = F.avg_pool2d(data, factor)
     return linear_to_srgb(data) if srgb else data
+
+
+def _blur(t: torch.Tensor, sigma: float, wrap: bool) -> torch.Tensor:
+    """Separable Gaussian blur of an NCHW tensor."""
+    r = max(1, math.ceil(3 * sigma))
+    k = torch.exp(-torch.arange(-r, r + 1, dtype=t.dtype, device=t.device) ** 2 / (2 * sigma ** 2))
+    k = (k / k.sum()).repeat(t.shape[1], 1, 1, 1)
+    mode = "circular" if wrap else "replicate"
+    t = F.conv2d(F.pad(t, (r, r, 0, 0), mode=mode), k.view(-1, 1, 1, 2 * r + 1), groups=t.shape[1])
+    return F.conv2d(F.pad(t, (0, 0, r, r), mode=mode), k.view(-1, 1, 2 * r + 1, 1), groups=t.shape[1])
+
+
+def match_colors(image: torch.Tensor, reference: torch.Tensor, srgb: bool, wrap: bool,
+                 weight: torch.Tensor | None = None, sigma: float = 2.0, max_gain: float = 2.0) -> torch.Tensor:
+    """Removes the model's colour and brightness drift but keeps its detail: scales `image` (NCHW, an integer
+    factor larger than `reference`) by the ratio of the two images' local means in linear light (Gaussian
+    sigma in reference texels), so the new top mip matches the original where the GPU switches between them.
+    A gain rather than an offset leaves dark texels of high-contrast textures alone. `weight` (N1HW at
+    reference size, e.g. alpha) leaves texels such as transparent ones out of the means."""
+    factor = image.shape[-1] // reference.shape[-1]
+    linear = srgb_to_linear if srgb else (lambda v: v)
+    w = torch.ones_like(reference[:, :1]) if weight is None else weight
+    coverage = _blur(w, sigma, wrap).clamp(min=1e-3)
+
+    def local_mean(t: torch.Tensor) -> torch.Tensor:
+        return _blur(t * w, sigma, wrap) / coverage
+
+    image = linear(image)
+    eps = 1e-3
+    gain = (local_mean(linear(reference)) + eps) / (local_mean(F.avg_pool2d(image, factor)) + eps)
+    gain = F.pad(gain.clamp(1 / max_gain, max_gain), (1, 1, 1, 1), mode="circular" if wrap else "replicate")
+    gain = F.interpolate(gain, scale_factor=factor, mode="bilinear", align_corners=False)
+    out = (image * gain[..., factor:-factor, factor:-factor]).clamp(0, 1)
+    return linear_to_srgb(out) if srgb else out

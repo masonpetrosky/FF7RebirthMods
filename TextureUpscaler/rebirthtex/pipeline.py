@@ -56,12 +56,16 @@ class Result:
 
 
 class Pipeline:
-    def __init__(self, game: Game, model_path: str, work_dir: Path, srgb: bool = True, cached_only: bool = False):
+    def __init__(self, game: Game, model_path: str, work_dir: Path, srgb: bool = True, cached_only: bool = False,
+                 color_fix: bool = True, fallback_cache: Path | None = None):
         self.game = game
         self.cached_only = cached_only
         self.model_path = model_path
         self.work_dir = Path(work_dir)
         self.srgb = srgb
+        self.color_fix = color_fix
+        # Results made with other settings (e.g. before an upgrade) to reuse where these settings have none.
+        self.fallback_cache = Path(fallback_cache) if fallback_cache else None
         self._upscaler = None
 
     @property
@@ -73,8 +77,8 @@ class Pipeline:
 
     def _cache_path(self, tp: TexturePackage) -> Path:
         digest = hashlib.sha1(tp.mip_data(0)).hexdigest()[:16]
-        model = Path(self.model_path).stem
-        return self.work_dir / "cache" / model / f"{tp.package_path.rsplit('/', 1)[1]}_{digest}.bin"
+        variant = Path(self.model_path).stem + ("-cf" if self.color_fix else "")
+        return self.work_dir / "cache" / variant / f"{tp.package_path.rsplit('/', 1)[1]}_{digest}.bin"
 
     def process(self, package_path: str) -> tuple[Result, ResizedTexture | None]:
         start = time.time()
@@ -86,9 +90,10 @@ class Pipeline:
             return Result(package_path, "skipped: top mip not in bulk data"), None
         width, height = tex.width * 2, tex.height * 2
         cache = self._cache_path(tp)
-        if cache.exists():
-            payload = cache.read_bytes()
-            return Result(package_path, "cached", time.time() - start), add_top_mip(tp, payload, width, height)
+        for found in (cache, self.fallback_cache / cache.name if self.fallback_cache else None):
+            if found is not None and found.exists():
+                payload = found.read_bytes()
+                return Result(package_path, "cached", time.time() - start), add_top_mip(tp, payload, width, height)
         if self.cached_only:
             return Result(package_path, "skipped: not upscaled yet"), None
 
@@ -98,7 +103,9 @@ class Pipeline:
             if rgba[..., :3].std(axis=(0, 1)).max() < 1.0:
                 return Result(package_path, "skipped: flat"), None
             rgb = rgba[..., :3].astype(np.float32) / 255.0
-            up = self.upscaler.upscale(rgb, wrap=True, shrink=2, srgb=self.srgb)
+            # Transparent texels hold no real colour (BC1 stores them black), so they don't steer the colour fix.
+            weight = rgba[..., 3].astype(np.float32) / 255.0 if rgba[..., 3].min() < 255 else None
+            up = self.upscaler.upscale(rgb, wrap=True, shrink=2, srgb=self.srgb, match=self.color_fix, mask=weight)
             out = np.empty((height, width, 4), dtype=np.uint8)
             out[..., :3] = np.clip(up * 255.0 + 0.5, 0, 255).astype(np.uint8)
             if rgba[..., 3].min() < 255:

@@ -40,7 +40,8 @@ def cmd_build(args: argparse.Namespace) -> None:
         print(f"{len(excluded)} textures excluded by {args.exclude}", flush=True)
     print(f"{len(packages)} textures selected", flush=True)
     game = Game(args.paks)
-    pipe = Pipeline(game, args.model, Path(args.work), cached_only=args.cached_only)
+    pipe = Pipeline(game, args.model, Path(args.work), cached_only=args.cached_only, color_fix=not args.no_color_fix,
+                    fallback_cache=args.fallback_cache)
     done, counts, start = [], {}, time.time()
     # ETA comes from recent upscale times: cached items replay instantly after a resume, and textures
     # are processed smallest first, so an overall average would badly underestimate what is left.
@@ -87,6 +88,9 @@ def main(argv: list[str]) -> None:
     build.add_argument("--mod-name", default="FF7RebirthTextureUpscaler_P")
     build.add_argument("--cached-only", action="store_true", help="only pack textures that are already upscaled")
     build.add_argument("--exclude", help="file of package paths (one per line, # comments) to keep at original size")
+    build.add_argument("--no-color-fix", action="store_true",
+                       help="keep the model's colours (default: match each texture's local colours to the original)")
+    build.add_argument("--fallback-cache", help="cache folder whose results to reuse when these settings have none")
     args = parser.parse_args(argv)
     if args.command == "setup":
         from .setup_deps import main as setup_main
