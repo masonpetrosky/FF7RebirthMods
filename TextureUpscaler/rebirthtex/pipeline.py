@@ -98,8 +98,7 @@ class Pipeline:
             if rgba[..., :3].std(axis=(0, 1)).max() < 1.0:
                 return Result(package_path, "skipped: flat"), None
             rgb = rgba[..., :3].astype(np.float32) / 255.0
-            from .upscale import downscale
-            up = downscale(self.upscaler.upscale(rgb, wrap=True), 2, srgb=self.srgb)
+            up = self.upscaler.upscale(rgb, wrap=True, shrink=2, srgb=self.srgb)
             out = np.empty((height, width, 4), dtype=np.uint8)
             out[..., :3] = np.clip(up * 255.0 + 0.5, 0, 255).astype(np.uint8)
             if rgba[..., 3].min() < 255:
