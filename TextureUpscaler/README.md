@@ -39,6 +39,11 @@ py -3.12 -m venv .venv
 Copy the three files from `out\` (`.utoc`, `.ucas`, `.pak`) into
 `<game>\End\Content\Paks\~mods\`.
 
+To check that the game displays the added mips, build the same selection with `--probe` and its
+own `--mod-name`: every added top mip becomes a black-and-white checkerboard, so surfaces near the
+camera turn into squares and look normal again farther away. Remove the probe from `~mods`
+afterwards. `docs/perf-testing.md` covers measuring the performance cost.
+
 ## Credits
 
 - Upscaling model: [PBRify Remix](https://github.com/Kim2091/PBRify_Remix) by Kim2091 (CC0).

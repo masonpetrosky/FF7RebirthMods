@@ -48,6 +48,28 @@ def encode_mip(rgba: np.ndarray, pixel_format: str, tmp: Path) -> bytes:
     return dds.read(tmp / "up_bc.dds")[3][0]
 
 
+_probe_blocks: dict[str, tuple[bytes, bytes]] = {}
+
+
+def probe_payload(pixel_format: str, width: int, height: int, square: int = 64) -> bytes:
+    """A black/white checkerboard with `square`-texel squares, encoded in the texture's block format.
+
+    Used in place of the upscaled top mip to check in game that the added mip is actually displayed:
+    surfaces near the camera turn into a checkerboard and look normal again farther away."""
+    if pixel_format not in _probe_blocks:
+        white = np.full((4, 4, 4), 255, dtype=np.uint8)
+        black = np.zeros((4, 4, 4), dtype=np.uint8)
+        black[..., 3] = 255
+        with tempfile.TemporaryDirectory() as tmp_name:
+            _probe_blocks[pixel_format] = (encode_mip(white, pixel_format, Path(tmp_name)),
+                                           encode_mip(black, pixel_format, Path(tmp_name)))
+    white_block, black_block = _probe_blocks[pixel_format]
+    blocks_x, blocks_y, per_square = (width + 3) // 4, (height + 3) // 4, square // 4
+    rows = [b"".join(white_block if (bx // per_square + parity) % 2 == 0 else black_block for bx in range(blocks_x))
+            for parity in (0, 1)]
+    return b"".join(rows[(by // per_square) % 2] for by in range(blocks_y))
+
+
 @dataclass
 class Result:
     package_path: str
@@ -57,9 +79,10 @@ class Result:
 
 class Pipeline:
     def __init__(self, game: Game, model_path: str, work_dir: Path, srgb: bool = True, cached_only: bool = False,
-                 color_fix: bool = True, fallback_cache: Path | None = None):
+                 color_fix: bool = True, fallback_cache: Path | None = None, probe: bool = False):
         self.game = game
         self.cached_only = cached_only
+        self.probe = probe
         self.model_path = model_path
         self.work_dir = Path(work_dir)
         self.srgb = srgb
@@ -92,7 +115,7 @@ class Pipeline:
         cache = self._cache_path(tp)
         for found in (cache, self.fallback_cache / cache.name if self.fallback_cache else None):
             if found is not None and found.exists():
-                payload = found.read_bytes()
+                payload = probe_payload(tex.pixel_format, width, height) if self.probe else found.read_bytes()
                 return Result(package_path, "cached", time.time() - start), add_top_mip(tp, payload, width, height)
         if self.cached_only:
             return Result(package_path, "skipped: not upscaled yet"), None
@@ -117,6 +140,8 @@ class Pipeline:
             payload = encode_mip(out, tex.pixel_format, tmp)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_bytes(payload)
+        if self.probe:
+            payload = probe_payload(tex.pixel_format, width, height)
         return Result(package_path, "upscaled", time.time() - start), add_top_mip(tp, payload, width, height)
 
 
