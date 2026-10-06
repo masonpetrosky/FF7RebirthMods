@@ -4,7 +4,10 @@ Open-source toolchain that AI-upscales textures from **FINAL FANTASY VII REBIRTH
 machine and packs them into a `~mods` container the game loads. No game assets are distributed:
 you run it against your own installation.
 
-**Status: work in progress.**
+**Status: working.** Tested in game with PBRify V4 over the 10,266 environment colour textures from
+256 to 1024 px: no measurable performance cost (4K, DLSS Performance, RTX 5070 Ti), and a `--probe`
+build confirmed the added mips are displayed at normal play distances. The gain is subtle; larger
+textures (2048 px and up) and normal maps are not covered.
 
 ## How it works
 
