@@ -20,8 +20,8 @@ you run it against your own installation.
   (seamless for tiling textures), then downsamples the 4x result to 2x in linear light and
   matches its low-frequency colours to the original, so the model adds detail without shifting
   brightness or saturation where the GPU blends between the new and the original top mip.
-- `toolsudit_mod.py` ranks the textures in a build by how much they change the look, to pick
-  any to keep at their original size (`build --exclude`); see `docsatch.md`.
+- `tools/audit_mod.py` ranks the textures in a build by how much they change the look, to pick
+  any to keep at their original size (`build --exclude`); see `docs/batch.md`.
 - texconv (DirectXTex) re-encodes to the texture's original block format.
 
 ## Usage
