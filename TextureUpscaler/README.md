@@ -9,6 +9,15 @@ you run it against your own installation.
 build confirmed the added mips are displayed at normal play distances. The gain is subtle; larger
 textures (2048 px and up) and normal maps are not covered.
 
+## In game
+
+![A probe build in game: walls, beams and loose boards show a black-and-white checkerboard](docs/images/probe.jpg)
+
+A `--probe` build at 4K, DLSS Performance. Every added top mip is replaced by a black-and-white
+checkerboard, so it shows which surfaces display the new mips: here the walls, crossbeams and loose
+boards, out to the tower on the right. Surfaces that look normal, like the floor, are showing their
+original mips.
+
 ## How it works
 
 - `rebirthtex.iostore` / `iostore_writer` read and write the game's UE 4.26 IoStore containers
