@@ -28,9 +28,14 @@ int wmain(int argc, wchar_t** argv) {
     npcmotion::Binding current, previous;
     const bool ok = reflection.FindPair(code.data(), code.size(), "BoneMatrices", "PreviousBoneMatrices", &current,
                                         &previous);
+    npcmotion::Binding view;
+    uint32_t jitter_offset = 0;
+    const bool has_view =
+        reflection.FindConstant(code.data(), code.size(), "View", "View_TemporalAAJitter", &view, &jitter_offset);
     if (ok)
-      wprintf(L"%s: BoneMatrices t%u space%u, PreviousBoneMatrices t%u space%u\n", argv[i], current.reg, current.space,
-              previous.reg, previous.space);
+      wprintf(L"%s: BoneMatrices t%u space%u, PreviousBoneMatrices t%u space%u, View %s b%u space%u, jitter at %u\n",
+              argv[i], current.reg, current.space, previous.reg, previous.space, has_view ? L"found" : L"missing",
+              view.reg, view.space, jitter_offset);
     else
       wprintf(L"%s: not found\n", argv[i]);
     failures += ok ? 0 : 1;

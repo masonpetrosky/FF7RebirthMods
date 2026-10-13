@@ -55,6 +55,23 @@ bool Descriptors::LocateShaderResource(pipeline_layout layout, const std::vector
   return false;
 }
 
+bool Descriptors::LocateRootConstantBuffer(pipeline_layout layout, shader_stage stage, uint32_t reg, uint32_t space,
+                                           uint32_t* param) const {
+  const auto it = layouts_.find(layout.handle);
+  if (it == layouts_.end()) return false;
+  for (size_t index = 0; index < it->second.size(); ++index) {
+    const Param& p = it->second[index];
+    if (p.type != pipeline_layout_param_type::push_descriptors || p.ranges.empty()) continue;
+    const descriptor_range& r = p.ranges[0];
+    if (r.type == descriptor_type::constant_buffer && (r.visibility & stage) != 0 && r.dx_register_index == reg &&
+        r.dx_register_space == space) {
+      *param = static_cast<uint32_t>(index);
+      return true;
+    }
+  }
+  return false;
+}
+
 resource_view Descriptors::View(descriptor_heap heap, uint32_t offset) const {
   const auto it = heaps_.find(heap.handle);
   if (it == heaps_.end() || offset >= it->second.descriptors.size()) return {0};
@@ -81,6 +98,9 @@ void Descriptors::OnInitPipelineLayout(device* device, uint32_t count, const pip
       case pipeline_layout_param_type::descriptor_table_with_flags:
         for (uint32_t r = 0; r < params[i].descriptor_table_with_flags.count; ++r)
           copy[i].ranges.push_back(params[i].descriptor_table_with_flags.ranges[r]);  // slices off the flags
+        break;
+      case pipeline_layout_param_type::push_descriptors:
+        copy[i].ranges.push_back(params[i].push_descriptors);
         break;
       default:
         break;

@@ -25,6 +25,9 @@ class ShaderReflection {
   // Finds the registers of two named resources in a DXIL container. False when either is missing.
   bool FindPair(const void* code, size_t size, const char* first, const char* second, Binding* first_binding,
                 Binding* second_binding) const;
+  // Finds a constant buffer's register and the byte offset of one of its variables.
+  bool FindConstant(const void* code, size_t size, const char* buffer, const char* variable, Binding* binding,
+                    uint32_t* offset) const;
 
  private:
   using CreateInstanceProc = long(__stdcall*)(const void* clsid, const void* iid, void** object);

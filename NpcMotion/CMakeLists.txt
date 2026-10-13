@@ -9,7 +9,7 @@ add_compile_definitions(UNICODE _UNICODE)
 add_compile_options(/W4 /permissive- /utf-8)
 
 # The ReShade add-on.
-add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/shader_reflection.cpp)
+add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dlss_probe.cpp src/shader_reflection.cpp)
 target_include_directories(FF7RebirthNpcMotion PRIVATE src third_party/reshade third_party/imgui)
 target_link_libraries(FF7RebirthNpcMotion PRIVATE dxguid)
 set_target_properties(FF7RebirthNpcMotion PROPERTIES SUFFIX ".addon64")

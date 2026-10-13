@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "descriptors.hpp"
+#include "dlss_probe.hpp"
 #include "shader_reflection.hpp"
 
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth NPC Motion";
@@ -71,6 +72,10 @@ std::string g_reflection_error;
 // Graphics pipelines whose vertex shader reads PreviousBoneMatrices, with the registers of both bone buffers.
 struct SkinRegisters {
   npcmotion::Binding current, previous;
+  // The View uniform buffer and the byte offset of View_TemporalAAJitter in it (DLSS probe).
+  npcmotion::Binding view;
+  uint32_t jitter_offset = 0;
+  bool has_view = false;
 };
 std::shared_mutex g_pipelines_mutex;
 std::unordered_map<uint64_t, SkinRegisters> g_skin_pipelines;
@@ -113,7 +118,13 @@ struct __declspec(uuid("9b5d3c21-7e64-4f0a-8c1d-2a6e9f4b7d38")) CommandListData 
   SkinRegisters registers;
   pipeline_layout layout = {0};
   std::vector<descriptor_table> tables;  // index = root parameter of `layout`
+  std::vector<buffer_range> root_cbvs;   // root constant buffers, index = root parameter of `layout`
 };
+
+// Presents so far (every present, including frames DLSS frame generation adds); a frame's draws carry the count
+// of the presents before them.
+std::atomic<uint64_t> g_presents{0};
+int g_probe_key = 0;
 
 void Log(reshade::log::level level, const std::string& message) {
   reshade::log::message(level, ("[NpcMotion] " + message).c_str());
@@ -258,8 +269,11 @@ std::optional<SkinRegisters> InspectVertexShader(const shader_desc& vs) {
   // The resource names are in the DXIL metadata, so most shaders are ruled out without reflection.
   if (Contains(vs.code, vs.code_size, kPreviousBones)) {
     SkinRegisters regs;
-    if (g_reflection.FindPair(vs.code, vs.code_size, kCurrentBones, kPreviousBones, &regs.current, &regs.previous))
+    if (g_reflection.FindPair(vs.code, vs.code_size, kCurrentBones, kPreviousBones, &regs.current, &regs.previous)) {
+      regs.has_view = g_reflection.FindConstant(vs.code, vs.code_size, "View", "View_TemporalAAJitter", &regs.view,
+                                                &regs.jitter_offset);
       result = regs;
+    }
     else
       ++g_reflection_failures;
   }
@@ -300,6 +314,7 @@ void OnResetCommandList(command_list* cmd_list) {
   data->skinned = false;
   data->layout = {0};
   data->tables.clear();
+  data->root_cbvs.clear();
 }
 
 void OnBindPipeline(command_list* cmd_list, pipeline_stage stages, pipeline pipeline) {
@@ -320,9 +335,47 @@ void OnBindDescriptorTables(command_list* cmd_list, shader_stage stages, pipelin
   if (data->layout != layout) {
     data->layout = layout;
     data->tables.clear();
+    data->root_cbvs.clear();
   }
   if (data->tables.size() < first + count) data->tables.resize(first + count);
   for (uint32_t i = 0; i < count; ++i) data->tables[first + i] = tables[i];
+}
+
+void OnPushDescriptors(command_list* cmd_list, shader_stage stages, pipeline_layout layout, uint32_t param,
+                       const descriptor_table_update& update) {
+  if ((stages & shader_stage::vertex) == 0 || update.type != descriptor_type::constant_buffer || update.count == 0 ||
+      !npcmotion::dlss_probe::enabled())
+    return;
+  auto* data = cmd_list->get_private_data<CommandListData>();
+  if (data == nullptr) return;
+  if (data->layout != layout) {
+    data->layout = layout;
+    data->tables.clear();
+    data->root_cbvs.clear();
+  }
+  if (data->root_cbvs.size() <= param) data->root_cbvs.resize(param + 1);
+  data->root_cbvs[param] = static_cast<const buffer_range*>(update.descriptors)[0];
+}
+
+// DLSS probe: reads View_TemporalAAJitter from the View buffer bound to this skinned draw (the first of a frame).
+void CaptureProjectionJitter(device* dev, const npcmotion::Descriptors& descriptors, const CommandListData& data) {
+  const uint64_t frame = g_presents.load();
+  if (!data.registers.has_view || npcmotion::dlss_probe::HasProjectionJitter(frame)) return;
+  uint32_t param = 0;
+  if (!descriptors.LocateRootConstantBuffer(data.layout, shader_stage::vertex, data.registers.view.reg,
+                                            data.registers.view.space, &param) ||
+      param >= data.root_cbvs.size() || data.root_cbvs[param].buffer == 0)
+    return;
+  const buffer_range& range = data.root_cbvs[param];
+  void* mapped = nullptr;
+  if (!dev->map_buffer_region(range.buffer, range.offset + data.registers.jitter_offset, 16, map_access::read_only,
+                              &mapped) ||
+      mapped == nullptr)
+    return;
+  float jitter[4];
+  memcpy(jitter, mapped, sizeof(jitter));
+  dev->unmap_buffer_region(range.buffer);
+  npcmotion::dlss_probe::SetProjectionJitter(frame, jitter);
 }
 
 // Looks up the view in a vertex-stage shader register and the bone buffer it shows.
@@ -351,6 +404,7 @@ void FixDraw(command_list* cmd_list) {
   const auto* descriptors = dev->get_private_data<npcmotion::Descriptors>();
   if (descriptors == nullptr) return;
   ++g_draws;
+  if (npcmotion::dlss_probe::enabled()) CaptureProjectionJitter(dev, *descriptors, *data);
 
   npcmotion::Descriptors::Slot current_slot, previous_slot;
   resource_view current_view = {0}, previous_view = {0};
@@ -403,6 +457,9 @@ bool KeyPressed(int vk, bool& was_down) {
 }
 
 void OnPresent(command_queue*, swapchain*, const rect*, const rect*, uint32_t, const rect*) {
+  npcmotion::dlss_probe::OnPresent(++g_presents);
+  static bool probe_down = false;
+  if (KeyPressed(g_probe_key, probe_down) && npcmotion::dlss_probe::enabled()) npcmotion::dlss_probe::Arm(120);
   // Presents without skinned draws (frames generated by DLSS frame generation, menus, loading screens) keep the last
   // rendered frame's buffers; after a longer stretch of them those are forgotten, since their memory may be reused.
   static uint32_t presents_without_draws = 0;
@@ -467,6 +524,10 @@ void OnOverlay(effect_runtime*) {
   ImGui::Text("Skinned pipelines with previous bones: %zu", pipelines);
   ImGui::Text("Animation budget: %s (AnimationBudget in the ini, applies at the next start)", g_budget_status.c_str());
   if (!g_reflection.initialized()) ImGui::Text("Not working: %s", g_reflection_error.c_str());
+  if (npcmotion::dlss_probe::enabled()) {
+    ImGui::Text("DLSS probe: %s", npcmotion::dlss_probe::Status().c_str());
+    if (ImGui::Button("Log the next 120 DLSS evaluations")) npcmotion::dlss_probe::Arm(120);
+  }
   if (g_reflection_failures != 0)
     ImGui::Text("Shaders whose bone registers could not be read: %zu (see ReShade.log)", g_reflection_failures.load());
 }
@@ -481,6 +542,10 @@ void Initialize(HMODULE module) {
   g_log_stats = ReadIniInt(L"LogStats", 0) != 0;
   g_animation_budget = ReadIniInt(L"AnimationBudget", 1);
   g_interpolated_characters = ReadIniInt(L"InterpolatedCharacters", -1);
+  if (ReadIniInt(L"DlssProbe", 0) != 0) {
+    g_probe_key = ReadIniInt(L"DlssProbeKey", 117);  // F6
+    npcmotion::dlss_probe::Initialize(dir / "FF7RebirthNpcMotion_dlss.log");
+  }
   const fs::path dll_dirs[] = {dir / "FF7RebirthNpcMotion", dir / "FF7RebirthHairFix"};
   if (g_reflection.Initialize(dll_dirs, std::size(dll_dirs), &g_reflection_error))
     Log(reshade::log::level::info, "Using " + g_reflection.path().string() + (g_enabled ? "; fix on." : "; fix off."));
@@ -504,6 +569,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
       reshade::register_event<reshade::addon_event::reset_command_list>(OnResetCommandList);
       reshade::register_event<reshade::addon_event::bind_pipeline>(OnBindPipeline);
       reshade::register_event<reshade::addon_event::bind_descriptor_tables>(OnBindDescriptorTables);
+      reshade::register_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
       reshade::register_event<reshade::addon_event::draw>(OnDraw);
       reshade::register_event<reshade::addon_event::draw_indexed>(OnDrawIndexed);
       reshade::register_event<reshade::addon_event::present>(OnPresent);
