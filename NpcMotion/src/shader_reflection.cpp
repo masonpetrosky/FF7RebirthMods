@@ -61,8 +61,8 @@ bool ShaderReflection::FindPair(const void* code, size_t size, const char* first
   return true;
 }
 
-bool ShaderReflection::FindConstant(const void* code, size_t size, const char* buffer, const char* variable,
-                                    Binding* binding, uint32_t* offset) const {
+bool ShaderReflection::FindConstants(const void* code, size_t size, const char* buffer, const char* const* variables,
+                                     size_t count, Binding* binding, uint32_t* offsets) const {
   if (create_ == nullptr) return false;
   ComPtr<IDxcUtils> utils;
   if (FAILED(create_(&CLSID_DxcUtils, &__uuidof(IDxcUtils), reinterpret_cast<void**>(&utils)))) return false;
@@ -75,12 +75,14 @@ bool ShaderReflection::FindConstant(const void* code, size_t size, const char* b
   if (FAILED(reflection->GetResourceBindingDescByName(buffer, &bind))) return false;
   ID3D12ShaderReflectionConstantBuffer* cb = reflection->GetConstantBufferByName(buffer);
   if (cb == nullptr) return false;
-  ID3D12ShaderReflectionVariable* var = cb->GetVariableByName(variable);
-  D3D12_SHADER_VARIABLE_DESC desc = {};
-  if (var == nullptr || FAILED(var->GetDesc(&desc))) return false;
+  for (size_t i = 0; i < count; ++i) {
+    ID3D12ShaderReflectionVariable* var = cb->GetVariableByName(variables[i]);
+    D3D12_SHADER_VARIABLE_DESC desc = {};
+    if (var == nullptr || FAILED(var->GetDesc(&desc))) return false;
+    offsets[i] = desc.StartOffset;
+  }
   binding->reg = bind.BindPoint;
   binding->space = bind.Space;
-  *offset = desc.StartOffset;
   return true;
 }
 

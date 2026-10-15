@@ -16,6 +16,36 @@ bool IsTable(pipeline_layout_param_type type) {
          type == pipeline_layout_param_type::descriptor_table_with_flags;
 }
 
+// Root descriptors. ReShade reports those of a version 1.1 root signature (which carry flags, as the game's do) as
+// push_descriptors_with_ranges_and_flags, with one range.
+bool IsPush(pipeline_layout_param_type type) {
+  return type == pipeline_layout_param_type::push_descriptors ||
+         type == pipeline_layout_param_type::push_descriptors_with_ranges ||
+         type == pipeline_layout_param_type::push_descriptors_with_ranges_and_flags;
+}
+
+const char* TypeName(descriptor_type type) {
+  switch (type) {
+    case descriptor_type::sampler: return "sampler";
+    case descriptor_type::sampler_with_resource_view: return "sampler+srv";
+    case descriptor_type::shader_resource_view: return "srv";
+    case descriptor_type::unordered_access_view: return "uav";
+    case descriptor_type::buffer_shader_resource_view: return "buffer-srv";
+    case descriptor_type::buffer_unordered_access_view: return "buffer-uav";
+    case descriptor_type::constant_buffer: return "cbv";
+    default: return "other";
+  }
+}
+
+std::string Stages(shader_stage stages) {
+  if (stages == shader_stage::all) return "all";
+  std::string out;
+  if ((stages & shader_stage::vertex) != 0) out += "vs";
+  if ((stages & shader_stage::pixel) != 0) out += out.empty() ? "ps" : "+ps";
+  if ((stages & shader_stage::compute) != 0) out += out.empty() ? "cs" : "+cs";
+  return out.empty() ? "other" : out;
+}
+
 }  // namespace
 
 void Descriptors::RegisterEvents() {
@@ -61,7 +91,7 @@ bool Descriptors::LocateRootConstantBuffer(pipeline_layout layout, shader_stage 
   if (it == layouts_.end()) return false;
   for (size_t index = 0; index < it->second.size(); ++index) {
     const Param& p = it->second[index];
-    if (p.type != pipeline_layout_param_type::push_descriptors || p.ranges.empty()) continue;
+    if (!IsPush(p.type) || p.ranges.size() != 1) continue;
     const descriptor_range& r = p.ranges[0];
     if (r.type == descriptor_type::constant_buffer && (r.visibility & stage) != 0 && r.dx_register_index == reg &&
         r.dx_register_space == space) {
@@ -70,6 +100,29 @@ bool Descriptors::LocateRootConstantBuffer(pipeline_layout layout, shader_stage 
     }
   }
   return false;
+}
+
+std::string Descriptors::Describe(pipeline_layout layout) const {
+  const auto it = layouts_.find(layout.handle);
+  if (it == layouts_.end()) return "unknown layout";
+  std::string out = std::to_string(it->second.size()) + " parameters:";
+  for (size_t index = 0; index < it->second.size(); ++index) {
+    const Param& p = it->second[index];
+    std::string kind = "type" + std::to_string(static_cast<int>(p.type));
+    if (IsTable(p.type)) kind = "table";
+    if (IsPush(p.type)) kind = "push";
+    if (p.type == pipeline_layout_param_type::push_constants) kind = "constants";
+    out += " " + std::to_string(index) + ":" + kind + "(";
+    for (size_t r = 0; r < p.ranges.size(); ++r) {
+      const descriptor_range& range = p.ranges[r];
+      out += (r == 0 ? "" : ", ") + std::string(TypeName(range.type)) + " r" + std::to_string(range.dx_register_index) +
+             (range.dx_register_space != 0 ? " space" + std::to_string(range.dx_register_space) : "") +
+             (range.count != 1 ? " x" + std::to_string(static_cast<int>(range.count)) : "") + " " +
+             Stages(range.visibility);
+    }
+    out += ")";
+  }
+  return out;
 }
 
 resource_view Descriptors::View(descriptor_heap heap, uint32_t offset) const {
@@ -92,10 +145,12 @@ void Descriptors::OnInitPipelineLayout(device* device, uint32_t count, const pip
     copy[i].type = params[i].type;
     switch (params[i].type) {
       case pipeline_layout_param_type::descriptor_table:
+      case pipeline_layout_param_type::push_descriptors_with_ranges:
         copy[i].ranges.assign(params[i].descriptor_table.ranges,
                               params[i].descriptor_table.ranges + params[i].descriptor_table.count);
         break;
       case pipeline_layout_param_type::descriptor_table_with_flags:
+      case pipeline_layout_param_type::push_descriptors_with_ranges_and_flags:
         for (uint32_t r = 0; r < params[i].descriptor_table_with_flags.count; ++r)
           copy[i].ranges.push_back(params[i].descriptor_table_with_flags.ranges[r]);  // slices off the flags
         break;

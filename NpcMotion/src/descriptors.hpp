@@ -11,6 +11,7 @@
 #include <concurrent_vector.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace npcmotion {
@@ -35,6 +36,9 @@ class __declspec(uuid("4c1e8a37-5f0b-4d2e-9a6c-7b3d2e8f1a54")) Descriptors {
   // The root parameter holding constant buffer b`reg` (space `space`) for `stage` as a root descriptor.
   bool LocateRootConstantBuffer(reshade::api::pipeline_layout layout, reshade::api::shader_stage stage, uint32_t reg,
                                 uint32_t space, uint32_t* param) const;
+
+  // The layout's parameters in short form (for the log), e.g. "0:table(srv t0 x64 ps) 9:push(cbv b1 vs)".
+  std::string Describe(reshade::api::pipeline_layout layout) const;
 
   // The resource view last written to a heap slot (by the game's view creation, descriptor copies or updates).
   reshade::api::resource_view View(reshade::api::descriptor_heap heap, uint32_t offset) const;

@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -40,6 +41,7 @@
 #include "descriptors.hpp"
 #include "dlss_probe.hpp"
 #include "shader_reflection.hpp"
+#include "texture_bias_code.hpp"
 
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth NPC Motion";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
@@ -53,6 +55,8 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr char kCurrentBones[] = "BoneMatrices";
+const char* const kViewVariables[5] = {"View_TemporalAAJitter", "View_TemporalAAParams", "View_MaterialTextureMipBias",
+                                       "View_PreExposure", "View_TemporalSamplerBias"};
 constexpr char kPreviousBones[] = "PreviousBoneMatrices";
 
 fs::path g_ini_path;
@@ -61,10 +65,50 @@ int g_toggle_key = 0;  // virtual-key code, 0 = none
 bool g_log_stats = false;
 // 1 = the game's animation budget; 0 = switched off at startup, so every character animates every frame.
 int g_animation_budget = 1;
+// Jitter positions per sequence (r.TemporalAASamples). The game keeps Unreal's 8 at every render scale, because its
+// DLSS integration does not use the engine's temporal upscaling path, which would raise it (8 / scale^2, NVIDIA's
+// guideline: 32 at 50%). 0 = the game's value. JitterKey switches between the two while playing.
+int g_jitter_phases = 0;
+int g_jitter_key = 0;
+int32_t* g_taa_samples = nullptr;  // r.TemporalAASamples: [0] game thread, [1] render thread
+int32_t* g_taa_method = nullptr;   // r.TemporalAA.Method (logged by the DLSS probe)
+int32_t g_game_samples = 8;
+std::atomic<bool> g_jitter_on{false};
+// Texture mip bias added to the game's own (ExtraMipBias; NaN or 0 = none, and the game's code is left alone). The
+// game's materials use log2(render width / output width), -1 in DLSS Performance mode; NVIDIA's DLSS guide (3.5) asks
+// for one level more, and if that shimmers, no less than log2(render / output). In game the extra level left the
+// median texture detail unchanged and made about a tenth of the textured areas a little sharper (docs/recon.md).
+// MipBiasKey switches the extra bias on and off while playing.
+float g_extra_mip_bias = NAN;
+int g_mip_bias_key = 0;
+std::atomic<bool> g_mip_bias_on{false};
+uint8_t* g_bias_site = nullptr;  // the game's stores of View.TemporalSamplerBias, redirected
+float* g_bias_value = nullptr;   // {extra bias, 0, 0, 0}, read by the redirected stores every frame
 // Characters the budget may interpolate on the frames it skips (a.Budget[For60FPS].MaxInterpolatedComponents,
 // which the game sets to 0; UE's default is 16). -1 = leave the game's value.
 int g_interpolated_characters = -1;
 std::string g_budget_status = "the game's";
+int g_pre_exposure_key = 0;
+
+// Values changed in the game's memory and what they held before, written back when ReShade unloads the add-on. The
+// game creates a D3D12 device at startup only to destroy it again, so the add-on is loaded twice, and the second load
+// has to find the game's own values.
+struct SavedValue {
+  int32_t* variable;
+  int32_t original;
+};
+std::vector<SavedValue> g_saved_values;
+
+void Remember(int32_t* variable) {
+  for (const SavedValue& saved : g_saved_values)
+    if (saved.variable == variable) return;
+  g_saved_values.push_back({variable, *variable});
+}
+
+void RestoreGameValues() {
+  for (auto it = g_saved_values.rbegin(); it != g_saved_values.rend(); ++it) *it->variable = it->original;
+  g_saved_values.clear();
+}
 
 npcmotion::ShaderReflection g_reflection;
 std::string g_reflection_error;
@@ -72,9 +116,9 @@ std::string g_reflection_error;
 // Graphics pipelines whose vertex shader reads PreviousBoneMatrices, with the registers of both bone buffers.
 struct SkinRegisters {
   npcmotion::Binding current, previous;
-  // The View uniform buffer and the byte offset of View_TemporalAAJitter in it (DLSS probe).
+  // The View uniform buffer and the byte offsets of the values the DLSS hooks read (kViewVariables order).
   npcmotion::Binding view;
-  uint32_t jitter_offset = 0;
+  uint32_t view_offsets[std::size(kViewVariables)] = {};
   bool has_view = false;
 };
 std::shared_mutex g_pipelines_mutex;
@@ -141,6 +185,20 @@ void WriteIniInt(const wchar_t* key, int value) {
   WritePrivateProfileStringW(L"NpcMotion", key, std::to_wstring(value).c_str(), g_ini_path.c_str());
 }
 
+float ReadIniFloat(const wchar_t* key, float fallback) {
+  wchar_t text[32] = {};
+  GetPrivateProfileStringW(L"NpcMotion", key, L"", text, 32, g_ini_path.c_str());
+  wchar_t* end = nullptr;
+  const float value = wcstof(text, &end);
+  return end != text && std::isfinite(value) ? value : fallback;
+}
+
+void WriteIniFloat(const wchar_t* key, float value) {
+  wchar_t text[32];
+  swprintf(text, 32, L"%.2f", value);
+  WritePrivateProfileStringW(L"NpcMotion", key, text, g_ini_path.c_str());
+}
+
 void SetEnabled(bool enabled) {
   g_enabled = enabled;
   WriteIniInt(L"Enabled", enabled ? 1 : 0);
@@ -148,48 +206,95 @@ void SetEnabled(bool enabled) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Animation budget
+// Console variables: animation budget, jitter sequence, texture mip bias
 
-// Finds the variable behind an FAutoConsoleVariableRef in the game's executable. The code that registers it loads the
-// variable's address into r8 (lea r8, [rip+X]) shortly before the name into rdx (lea rdx, [rip+name]).
-void* FindConsoleVariable(const wchar_t* name) {
-  auto* const base = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
-  const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + reinterpret_cast<IMAGE_DOS_HEADER*>(base)->e_lfanew);
-  const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
-  const uint8_t *text = nullptr, *rdata = nullptr;
-  size_t text_size = 0, rdata_size = 0;
-  for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
-    const char* section = reinterpret_cast<const char*>(sections[i].Name);
-    if (strncmp(section, ".text", 8) == 0) text = base + sections[i].VirtualAddress, text_size = sections[i].Misc.VirtualSize;
-    if (strncmp(section, ".rdata", 8) == 0)
-      rdata = base + sections[i].VirtualAddress, rdata_size = sections[i].Misc.VirtualSize;
+// The game's executable: its code and its read-only data.
+struct Image {
+  uint8_t* text = nullptr;
+  size_t text_size = 0;
+  const uint8_t* rdata = nullptr;
+  size_t rdata_size = 0;
+  bool InText(const void* p, size_t bytes) const {
+    return p >= text && static_cast<const uint8_t*>(p) + bytes <= text + text_size;
   }
-  if (text == nullptr || rdata == nullptr) return nullptr;
+};
+
+const Image& GameImage() {
+  static const Image image = [] {
+    Image result;
+    auto* const base = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
+    const auto* nt =
+        reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
+      const char* section = reinterpret_cast<const char*>(sections[i].Name);
+      if (strncmp(section, ".text", 8) == 0)
+        result.text = base + sections[i].VirtualAddress, result.text_size = sections[i].Misc.VirtualSize;
+      if (strncmp(section, ".rdata", 8) == 0)
+        result.rdata = base + sections[i].VirtualAddress, result.rdata_size = sections[i].Misc.VirtualSize;
+    }
+    return result;
+  }();
+  return image;
+}
+
+// Where a RIP-relative instruction of `length` bytes, ending with its displacement, points.
+const uint8_t* RipTarget(const uint8_t* instruction, size_t length) {
+  int32_t disp;
+  memcpy(&disp, instruction + length - 4, 4);
+  return instruction + length + disp;
+}
+
+// The code that loads the exact name into rdx (lea rdx, [rip+name]), as code that registers or looks up a console
+// variable does.
+std::vector<const uint8_t*> NameLoads(const wchar_t* name) {
+  const Image& image = GameImage();
+  std::vector<const uint8_t*> loads;
+  if (image.text == nullptr || image.rdata == nullptr) return loads;
   const size_t name_bytes = (wcslen(name) + 1) * sizeof(wchar_t);  // with the terminator: the exact name only
   std::vector<const uint8_t*> strings;
-  for (size_t i = 0; i + name_bytes <= rdata_size; i += 2)
-    if (memcmp(rdata + i, name, name_bytes) == 0) strings.push_back(rdata + i);
-  for (size_t i = 0; i + 7 <= text_size; ++i) {
-    if (text[i] != 0x48 || text[i + 1] != 0x8D || text[i + 2] != 0x15) continue;  // lea rdx, [rip+disp32]
-    int32_t disp;
-    memcpy(&disp, text + i + 3, 4);
-    const uint8_t* target = text + i + 7 + disp;
-    if (std::find(strings.begin(), strings.end(), target) == strings.end()) continue;
-    for (size_t back = 7; back <= 48 && back <= i; ++back) {
-      const uint8_t* p = text + i - back;
-      if (p[0] != 0x4C || p[1] != 0x8D || p[2] != 0x05) continue;  // lea r8, [rip+disp32]
-      memcpy(&disp, p + 3, 4);
-      return const_cast<uint8_t*>(p + 7 + disp);
+  for (size_t i = 0; i + name_bytes <= image.rdata_size; i += 2)
+    if (memcmp(image.rdata + i, name, name_bytes) == 0) strings.push_back(image.rdata + i);
+  if (strings.empty()) return loads;
+  for (size_t i = 0; i + 7 <= image.text_size; ++i) {
+    const uint8_t* p = image.text + i;
+    if (p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x15 &&
+        std::find(strings.begin(), strings.end(), RipTarget(p, 7)) != strings.end())
+      loads.push_back(p);
+  }
+  return loads;
+}
+
+// Finds a console variable's storage in the game's executable from the code that registers it, which loads the name
+// into rdx. FAutoConsoleVariableRef (kRef): the variable's address is loaded into r8 shortly before
+// (lea r8, [rip+X]). TAutoConsoleVariable (kAuto): the static object is loaded into rcx right after (lea rcx, [rip+X],
+// the very next instruction) and points to its value at +0x10 (TConsoleVariableData: game-thread then render-thread
+// copy).
+enum class CVarKind { kRef, kAuto };
+void* FindConsoleVariable(const wchar_t* name, CVarKind kind = CVarKind::kRef) {
+  const Image& image = GameImage();
+  for (const uint8_t* load : NameLoads(name)) {
+    if (kind == CVarKind::kAuto) {
+      const uint8_t* p = load + 7;
+      if (image.InText(p, 7) && p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x0D)
+        return *reinterpret_cast<void* const*>(RipTarget(p, 7) + 0x10);
+      continue;
+    }
+    for (size_t back = 7; back <= 48 && back <= static_cast<size_t>(load - image.text); ++back) {
+      const uint8_t* p = load - back;
+      if (p[0] == 0x4C && p[1] == 0x8D && p[2] == 0x05) return const_cast<uint8_t*>(RipTarget(p, 7));
     }
   }
   return nullptr;
 }
+
 
 // Writes an integer console variable before the world exists, after checking that it holds a plausible value.
 bool SetIntVariable(const wchar_t* name, int32_t lo, int32_t hi, int32_t value, int32_t* before) {
   auto* const variable = static_cast<int32_t*>(FindConsoleVariable(name));
   if (variable == nullptr || *variable < lo || *variable > hi) return false;
   *before = *variable;
+  Remember(variable);
   *variable = value;
   return true;
 }
@@ -231,14 +336,137 @@ void ApplyAnimationBudget() {
     return;
   }
   const int32_t before = *enabled;
+  Remember(enabled);
   *enabled = 0;
   g_budget_status = "off: every character animates every frame";
   Log(reshade::log::level::info, "Animation budget switched off (a.Budget.Enabled was " + std::to_string(before) + ").");
 }
 
+void SetJitterPhases(bool on) {
+  if (g_taa_samples == nullptr || g_jitter_phases <= 0) return;
+  const int32_t value = on ? g_jitter_phases : g_game_samples;
+  Remember(&g_taa_samples[0]);
+  Remember(&g_taa_samples[1]);
+  g_taa_samples[0] = value;
+  g_taa_samples[1] = value;
+  g_jitter_on = on;
+  Log(reshade::log::level::info, "Jitter sequence: " + std::to_string(value) + " positions (" +
+                                     (on ? "JitterPhases" : "the game's") + "; the game's is " +
+                                     std::to_string(g_game_samples) + ").");
+}
+
+void ApplyJitter() {
+  g_taa_samples = static_cast<int32_t*>(FindConsoleVariable(L"r.TemporalAASamples", CVarKind::kAuto));
+  g_taa_method = static_cast<int32_t*>(FindConsoleVariable(L"r.TemporalAA.Method", CVarKind::kAuto));
+  npcmotion::dlss_probe::SetConsoleVariables(g_taa_samples, g_taa_method);
+  if (g_taa_samples == nullptr || g_taa_samples[1] < 1 || g_taa_samples[1] > 255) {
+    if (g_jitter_phases > 0) Log(reshade::log::level::warning, "r.TemporalAASamples not found; jitter left as is.");
+    g_taa_samples = nullptr;
+    return;
+  }
+  g_game_samples = g_taa_samples[1];
+  if (g_jitter_phases > 0) SetJitterPhases(true);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Texture mip bias
+
+// The game's materials sample every texture through one shared anisotropic sampler with the bias in
+// View.TemporalSamplerBias.y (r.MipMapLODBias does not reach them). Its jitter setup fills TemporalSamplerBias with
+// (scale, log2(scale), scale, log2(scale)), scale = render width / output width: -1 in DLSS Performance mode, where
+// NVIDIA's DLSS guide (3.5) asks for log2(scale) - 1. The add-on sends the four stores (rbx = the view) to a routine that
+// adds the extra bias to .y and .w when the game's own value is negative, i.e. while the image is upscaled. The
+// routine (texture_bias_code.hpp) reads the extra bias from memory every frame, so changing it applies from the next
+// frame.
+namespace bias = npcmotion::texture_bias;
+uint8_t g_bias_original[bias::kPatchSize];
+
+// The stores, if they occur exactly once in the game's code.
+uint8_t* FindBiasStores() {
+  const Image& image = GameImage();
+  uint8_t* found = nullptr;
+  for (size_t i = 0; i + sizeof(bias::kStores) <= image.text_size; ++i) {
+    if (image.text[i] != bias::kStores[0] || memcmp(image.text + i, bias::kStores, sizeof(bias::kStores)) != 0)
+      continue;
+    if (found != nullptr) return nullptr;
+    found = image.text + i;
+  }
+  return found;
+}
+
+bool WriteCode(uint8_t* at, const uint8_t* bytes, size_t size) {
+  DWORD old;
+  if (!VirtualProtect(at, size, PAGE_EXECUTE_READWRITE, &old)) return false;
+  memcpy(at, bytes, size);
+  VirtualProtect(at, size, old, &old);
+  FlushInstructionCache(GetCurrentProcess(), at, size);
+  return true;
+}
+
+// At startup, before the game renders (no thread is in the stores while they are replaced).
+bool RedirectBiasStores() {
+  uint8_t* const match = FindBiasStores();
+  if (match == nullptr) return false;
+  uint8_t* const site = match + bias::kPatchOffset;
+  // The routine's page and the constant's page. Never freed: a thread could still be in the routine when the stores
+  // are put back at unload.
+  auto* const routine = static_cast<uint8_t*>(
+      VirtualAlloc(nullptr, 2 * bias::kConstantOffset, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+  if (routine == nullptr) return false;
+  memcpy(routine, bias::kRoutine, sizeof(bias::kRoutine));
+  const uint64_t back = reinterpret_cast<uint64_t>(site + bias::kPatchSize);
+  memcpy(routine + sizeof(bias::kRoutine), &back, sizeof(back));
+  DWORD old;
+  if (!VirtualProtect(routine, bias::kConstantOffset, PAGE_EXECUTE_READ, &old)) {
+    VirtualFree(routine, 0, MEM_RELEASE);
+    return false;
+  }
+  g_bias_value = reinterpret_cast<float*>(routine + bias::kConstantOffset);  // zeroed: no extra bias yet
+  uint8_t jump[bias::kPatchSize];
+  memset(jump, 0xCC, sizeof(jump));  // after the jump: never reached
+  const uint8_t jmp_rip[] = {0xFF, 0x25, 0x00, 0x00, 0x00, 0x00};
+  memcpy(jump, jmp_rip, sizeof(jmp_rip));
+  const uint64_t target = reinterpret_cast<uint64_t>(routine);
+  memcpy(jump + sizeof(jmp_rip), &target, sizeof(target));
+  memcpy(g_bias_original, site, bias::kPatchSize);
+  if (!WriteCode(site, jump, bias::kPatchSize)) return false;
+  g_bias_site = site;
+  return true;
+}
+
+void RestoreBiasStores() {
+  if (g_bias_site == nullptr) return;
+  WriteCode(g_bias_site, g_bias_original, bias::kPatchSize);
+  g_bias_site = nullptr;
+}
+
+void SetMipBias(bool on) {
+  if (g_bias_value == nullptr) return;
+  std::atomic_ref<float>(*g_bias_value).store(on ? g_extra_mip_bias : 0.0f);
+  g_mip_bias_on = on;
+  char line[160];
+  snprintf(line, sizeof(line), "Extra texture mip bias: %.2f (%s)", on ? g_extra_mip_bias : 0.0f,
+           on ? "ExtraMipBias" : "the game's bias only");
+  Log(reshade::log::level::info, line);
+}
+
+void ApplyMipBias() {
+  if (std::isnan(g_extra_mip_bias) || g_extra_mip_bias == 0.0f) return;
+  if (!RedirectBiasStores()) {
+    Log(reshade::log::level::warning,
+        "The game's texture bias code was not found (another game version?); textures keep the game's bias.");
+    return;
+  }
+  SetMipBias(true);
+}
+
 void OnInitDevice(device*) {
   static std::once_flag once;
-  std::call_once(once, ApplyAnimationBudget);
+  std::call_once(once, [] {
+    ApplyAnimationBudget();
+    ApplyJitter();
+    ApplyMipBias();
+  });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -270,8 +498,8 @@ std::optional<SkinRegisters> InspectVertexShader(const shader_desc& vs) {
   if (Contains(vs.code, vs.code_size, kPreviousBones)) {
     SkinRegisters regs;
     if (g_reflection.FindPair(vs.code, vs.code_size, kCurrentBones, kPreviousBones, &regs.current, &regs.previous)) {
-      regs.has_view = g_reflection.FindConstant(vs.code, vs.code_size, "View", "View_TemporalAAJitter", &regs.view,
-                                                &regs.jitter_offset);
+      regs.has_view = g_reflection.FindConstants(vs.code, vs.code_size, "View", kViewVariables,
+                                                 std::size(kViewVariables), &regs.view, regs.view_offsets);
       result = regs;
     }
     else
@@ -357,25 +585,54 @@ void OnPushDescriptors(command_list* cmd_list, shader_stage stages, pipeline_lay
   data->root_cbvs[param] = static_cast<const buffer_range*>(update.descriptors)[0];
 }
 
-// DLSS probe: reads View_TemporalAAJitter from the View buffer bound to this skinned draw (the first of a frame).
-void CaptureProjectionJitter(device* dev, const npcmotion::Descriptors& descriptors, const CommandListData& data) {
+// DLSS hooks: reads the frame's View values (jitter, TAA parameters, mip biases, pre-exposure) from the View buffer
+// bound to its first skinned draw.
+void CaptureViewValues(device* dev, const npcmotion::Descriptors& descriptors, const CommandListData& data) {
+  using npcmotion::dlss_probe::ViewFailure;
   const uint64_t frame = g_presents.load();
-  if (!data.registers.has_view || npcmotion::dlss_probe::HasProjectionJitter(frame)) return;
+  if (npcmotion::dlss_probe::HasViewValues(frame)) return;
+  if (!data.registers.has_view) return npcmotion::dlss_probe::CountViewFailure(ViewFailure::kNoReflection);
   uint32_t param = 0;
   if (!descriptors.LocateRootConstantBuffer(data.layout, shader_stage::vertex, data.registers.view.reg,
-                                            data.registers.view.space, &param) ||
-      param >= data.root_cbvs.size() || data.root_cbvs[param].buffer == 0)
-    return;
+                                            data.registers.view.space, &param)) {
+    static std::once_flag once;
+    std::call_once(once, [&] {
+      Log(reshade::log::level::warning, "View buffer b" + std::to_string(data.registers.view.reg) + " space" +
+                                            std::to_string(data.registers.view.space) +
+                                            " is no root descriptor of the draw's root signature, " +
+                                            descriptors.Describe(data.layout));
+    });
+    return npcmotion::dlss_probe::CountViewFailure(ViewFailure::kNoRootParameter);
+  }
+  if (param >= data.root_cbvs.size() || data.root_cbvs[param].buffer == 0)
+    return npcmotion::dlss_probe::CountViewFailure(ViewFailure::kNotBound);
+  const uint32_t* offsets = data.registers.view_offsets;
+  const uint32_t* const end = offsets + std::size(kViewVariables);
+  const uint32_t first = *std::min_element(offsets, end), last = *std::max_element(offsets, end) + 16;
   const buffer_range& range = data.root_cbvs[param];
   void* mapped = nullptr;
-  if (!dev->map_buffer_region(range.buffer, range.offset + data.registers.jitter_offset, 16, map_access::read_only,
-                              &mapped) ||
+  if (!dev->map_buffer_region(range.buffer, range.offset + first, last - first, map_access::read_only, &mapped) ||
       mapped == nullptr)
-    return;
-  float jitter[4];
-  memcpy(jitter, mapped, sizeof(jitter));
+    return npcmotion::dlss_probe::CountViewFailure(ViewFailure::kMapFailed);
+  const auto* bytes = static_cast<const uint8_t*>(mapped);
+  npcmotion::dlss_probe::ViewValues values;
+  memcpy(values.jitter, bytes + offsets[0] - first, sizeof(values.jitter));
+  memcpy(values.taa_params, bytes + offsets[1] - first, sizeof(values.taa_params));
+  memcpy(&values.mip_bias, bytes + offsets[2] - first, sizeof(float));
+  memcpy(&values.pre_exposure, bytes + offsets[3] - first, sizeof(float));
+  memcpy(values.sampler_bias, bytes + offsets[4] - first, sizeof(values.sampler_bias));
   dev->unmap_buffer_region(range.buffer);
-  npcmotion::dlss_probe::SetProjectionJitter(frame, jitter);
+  npcmotion::dlss_probe::SetViewValues(frame, values);
+  static std::once_flag once;
+  std::call_once(once, [&] {
+    char line[240];
+    snprintf(line, sizeof(line),
+             "View values read (root parameter %u): pre-exposure %g, material mip bias %g, texture bias (%g, %g, %g, "
+             "%g), jitter sequence %g",
+             param, values.pre_exposure, values.mip_bias, values.sampler_bias[0], values.sampler_bias[1],
+             values.sampler_bias[2], values.sampler_bias[3], values.taa_params[1]);
+    Log(reshade::log::level::info, line);
+  });
 }
 
 // Looks up the view in a vertex-stage shader register and the bone buffer it shows.
@@ -404,7 +661,7 @@ void FixDraw(command_list* cmd_list) {
   const auto* descriptors = dev->get_private_data<npcmotion::Descriptors>();
   if (descriptors == nullptr) return;
   ++g_draws;
-  if (npcmotion::dlss_probe::enabled()) CaptureProjectionJitter(dev, *descriptors, *data);
+  if (npcmotion::dlss_probe::enabled()) CaptureViewValues(dev, *descriptors, *data);
 
   npcmotion::Descriptors::Slot current_slot, previous_slot;
   resource_view current_view = {0}, previous_view = {0};
@@ -448,18 +705,35 @@ bool OnDrawIndexed(command_list* cmd_list, uint32_t, uint32_t, uint32_t, int32_t
 // ---------------------------------------------------------------------------------------------
 // Frames, keys and overlay
 
+// A key counts only while the game's window is in front and neither Alt nor Ctrl is held (Alt+F4 closes the game).
 bool KeyPressed(int vk, bool& was_down) {
   if (vk == 0) return false;
   const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
   const bool pressed = down && !was_down;
   was_down = down;
-  return pressed;
+  if (!pressed || (GetAsyncKeyState(VK_MENU) & 0x8000) != 0 || (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
+    return false;
+  DWORD process = 0;
+  GetWindowThreadProcessId(GetForegroundWindow(), &process);
+  return process == GetCurrentProcessId();
+}
+
+// For this session only, like the jitter and mip bias switches. (Saving 0 would leave the hooks out at the next start,
+// and with them this switch.)
+void SetPassPreExposure(bool pass) {
+  npcmotion::dlss_probe::SetPassPreExposure(pass);
+  Log(reshade::log::level::info, pass ? "Pre-exposure: the engine's value is passed to DLSS."
+                                      : "Pre-exposure: left as the game passes it (1).");
 }
 
 void OnPresent(command_queue*, swapchain*, const rect*, const rect*, uint32_t, const rect*) {
   npcmotion::dlss_probe::OnPresent(++g_presents);
-  static bool probe_down = false;
-  if (KeyPressed(g_probe_key, probe_down) && npcmotion::dlss_probe::enabled()) npcmotion::dlss_probe::Arm(120);
+  static bool probe_down = false, jitter_down = false, pre_exposure_down = false, mip_bias_down = false;
+  if (KeyPressed(g_probe_key, probe_down) && npcmotion::dlss_probe::logging()) npcmotion::dlss_probe::Arm(120);
+  if (KeyPressed(g_jitter_key, jitter_down)) SetJitterPhases(!g_jitter_on);
+  if (KeyPressed(g_mip_bias_key, mip_bias_down)) SetMipBias(!g_mip_bias_on);
+  if (KeyPressed(g_pre_exposure_key, pre_exposure_down) && npcmotion::dlss_probe::enabled())
+    SetPassPreExposure(!npcmotion::dlss_probe::pass_pre_exposure());
   // Presents without skinned draws (frames generated by DLSS frame generation, menus, loading screens) keep the last
   // rendered frame's buffers; after a longer stretch of them those are forgotten, since their memory may be reused.
   static uint32_t presents_without_draws = 0;
@@ -491,13 +765,17 @@ void OnPresent(command_queue*, swapchain*, const rect*, const rect*, uint32_t, c
       std::shared_lock lock(g_pipelines_mutex);
       pipelines = g_skin_pipelines.size();
     }
-    char line[320];
+    // The texture bias is read from the View buffer, which only the DLSS hooks do.
+    char bias_text[16] = "n/a";
+    if (npcmotion::dlss_probe::enabled())
+      snprintf(bias_text, sizeof(bias_text), "%.2f", npcmotion::dlss_probe::LatestViewValues().sampler_bias[1]);
+    char line[360];
     snprintf(line, sizeof(line),
              "frame %llu (%.1f fps): %u skinned draws, %u not updated (%s), %u updated, %u already still, "
-             "%u unresolved; %zu skinned pipelines; animation budget %s",
+             "%u unresolved; %zu skinned pipelines; animation budget %s; texture bias %s",
              static_cast<unsigned long long>(frame), seconds > 0.5 ? 600.0 / seconds : 0.0, g_last_stats.draws,
              g_last_stats.fixed, g_enabled ? "fixed" : "fix off", g_last_stats.updated, g_last_stats.same,
-             g_last_stats.unresolved, pipelines, g_animation_budget != 0 ? "on" : "off");
+             g_last_stats.unresolved, pipelines, g_animation_budget != 0 ? "on" : "off", bias_text);
     Log(reshade::log::level::info, line);
   }
 }
@@ -524,9 +802,42 @@ void OnOverlay(effect_runtime*) {
   ImGui::Text("Skinned pipelines with previous bones: %zu", pipelines);
   ImGui::Text("Animation budget: %s (AnimationBudget in the ini, applies at the next start)", g_budget_status.c_str());
   if (!g_reflection.initialized()) ImGui::Text("Not working: %s", g_reflection_error.c_str());
+  if (g_jitter_phases > 0 && g_taa_samples != nullptr) {
+    bool on = g_jitter_on;
+    if (ImGui::Checkbox("Longer jitter sequence for DLSS", &on)) SetJitterPhases(on);
+    ImGui::SetItemTooltip("%d jitter positions instead of the game's %d (r.TemporalAASamples).", g_jitter_phases,
+                          g_game_samples);
+  }
+  if (g_jitter_phases > 0 && g_jitter_key != 0) ImGui::Text("Jitter toggle key: virtual-key %d", g_jitter_key);
+  if (g_bias_value != nullptr) {
+    bool on = g_mip_bias_on;
+    if (ImGui::Checkbox("Extra texture mip bias for DLSS", &on)) SetMipBias(on);
+    ImGui::SetItemTooltip("The game samples textures with a bias of log2(render width / output width), -1 in\n"
+                          "Performance mode. NVIDIA's DLSS guide asks for one level more (-1 here).");
+    static float pending = NAN;
+    if (std::isnan(pending)) pending = g_extra_mip_bias;
+    ImGui::SliderFloat("Extra mip bias", &pending, -2.0f, 0.0f, "%.2f");
+    const bool edited = ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SetItemTooltip("Saved as ExtraMipBias in the ini. At 0 the add-on leaves the game's code alone from the\n"
+                          "next start, and these controls are not shown.");
+    if (edited) {
+      g_extra_mip_bias = pending;
+      WriteIniFloat(L"ExtraMipBias", pending);
+      if (g_mip_bias_on) SetMipBias(true);
+    }
+    if (npcmotion::dlss_probe::enabled())
+      ImGui::Text("Texture bias in use: %.2f", npcmotion::dlss_probe::LatestViewValues().sampler_bias[1]);
+    if (g_mip_bias_key != 0) ImGui::Text("Mip bias toggle key: virtual-key %d", g_mip_bias_key);
+  }
   if (npcmotion::dlss_probe::enabled()) {
-    ImGui::Text("DLSS probe: %s", npcmotion::dlss_probe::Status().c_str());
-    if (ImGui::Button("Log the next 120 DLSS evaluations")) npcmotion::dlss_probe::Arm(120);
+    bool pass = npcmotion::dlss_probe::pass_pre_exposure();
+    if (ImGui::Checkbox("Pass the engine's pre-exposure to DLSS", &pass)) SetPassPreExposure(pass);
+    ImGui::SetItemTooltip("The game tells DLSS 1 although Unreal scales the scene colour by View.PreExposure.\n"
+                          "NVIDIA's DLSS guide: a pre-exposure must be passed at every evaluation.");
+    if (g_pre_exposure_key != 0) ImGui::Text("Pre-exposure toggle key: virtual-key %d", g_pre_exposure_key);
+    ImGui::Text("DLSS hooks: %s", npcmotion::dlss_probe::Status().c_str());
+    if (npcmotion::dlss_probe::logging() && ImGui::Button("Log the next 120 DLSS evaluations"))
+      npcmotion::dlss_probe::Arm(120);
   }
   if (g_reflection_failures != 0)
     ImGui::Text("Shaders whose bone registers could not be read: %zu (see ReShade.log)", g_reflection_failures.load());
@@ -542,9 +853,16 @@ void Initialize(HMODULE module) {
   g_log_stats = ReadIniInt(L"LogStats", 0) != 0;
   g_animation_budget = ReadIniInt(L"AnimationBudget", 1);
   g_interpolated_characters = ReadIniInt(L"InterpolatedCharacters", -1);
-  if (ReadIniInt(L"DlssProbe", 0) != 0) {
-    g_probe_key = ReadIniInt(L"DlssProbeKey", 117);  // F6
-    npcmotion::dlss_probe::Initialize(dir / "FF7RebirthNpcMotion_dlss.log");
+  g_jitter_phases = ReadIniInt(L"JitterPhases", 0);
+  g_jitter_key = ReadIniInt(L"JitterKey", 0);
+  g_pre_exposure_key = ReadIniInt(L"PreExposureKey", 0);
+  g_extra_mip_bias = ReadIniFloat(L"ExtraMipBias", NAN);
+  g_mip_bias_key = ReadIniInt(L"MipBiasKey", 0);
+  const bool probe = ReadIniInt(L"DlssProbe", 0) != 0;
+  const bool pre_exposure = ReadIniInt(L"DlssPreExposure", 0) != 0;
+  if (probe || pre_exposure) {
+    g_probe_key = probe ? ReadIniInt(L"DlssProbeKey", 117) : 0;  // F6
+    npcmotion::dlss_probe::Initialize(probe ? dir / "FF7RebirthNpcMotion_dlss.log" : fs::path(), pre_exposure);
   }
   const fs::path dll_dirs[] = {dir / "FF7RebirthNpcMotion", dir / "FF7RebirthHairFix"};
   if (g_reflection.Initialize(dll_dirs, std::size(dll_dirs), &g_reflection_error))
@@ -555,7 +873,7 @@ void Initialize(HMODULE module) {
 
 }  // namespace
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
   switch (reason) {
     case DLL_PROCESS_ATTACH:
       if (!reshade::register_addon(module)) return FALSE;
@@ -580,6 +898,13 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       npcmotion::Descriptors::UnregisterEvents();
       reshade::unregister_addon(module);
+      // ReShade unloads its add-ons with the device while the game keeps running: put back what was changed in the
+      // game's memory, so a later load finds the game's own values. Not needed when the process ends.
+      if (reserved == nullptr) {
+        npcmotion::dlss_probe::Shutdown();
+        RestoreBiasStores();
+        RestoreGameValues();
+      }
       break;
   }
   return TRUE;

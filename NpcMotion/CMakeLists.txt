@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_compile_definitions(UNICODE _UNICODE)
-add_compile_options(/W4 /permissive- /utf-8)
+add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8>")
 
 # The ReShade add-on.
 add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dlss_probe.cpp src/shader_reflection.cpp)
@@ -18,3 +18,8 @@ set_target_properties(FF7RebirthNpcMotion PROPERTIES SUFFIX ".addon64")
 add_executable(reflect_test tests/reflect_test.cpp src/shader_reflection.cpp)
 target_include_directories(reflect_test PRIVATE src)
 target_link_libraries(reflect_test PRIVATE dxguid)
+
+# Runs the texture bias routine the way the game enters it.
+enable_language(ASM_MASM)
+add_executable(bias_routine_test tests/bias_routine_test.cpp tests/bias_routine_test.asm)
+target_include_directories(bias_routine_test PRIVATE src)

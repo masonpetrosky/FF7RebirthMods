@@ -102,8 +102,87 @@ miss a fix (a buffer from two frames back is never in the set), not apply a wron
   not updated (the add-on fixes those), 100-102 fps with the GPU at 83-90% (preset M by then). The user: "seems good
   to me". These are the defaults.
 
+## DLSS integration against NVIDIA's DLSS Programming Guide (31 March 2026), 2026-10-12
+
+Super resolution runs through Square Enix's own NGX integration: the NGX static library in the executable resolves
+`NVSDK_NGX_D3D12_CreateFeature`/`EvaluateFeature` from the driver's `_nvngx.dll` and keeps the pointers in its data
+section (Streamline 2.8 only does frame generation and Reflex). The development probe (`DlssProbe=1`,
+`src/dlss_probe.*`, F6 logs 120 evaluations) swaps those pointers. What the game passes (Kalm, preset M via the NVIDIA
+app, DLSS 310.9): flags `IsHDR|MVLowRes|DepthInverted|AutoExposure`, colour R11G11B10F and motion vectors RG16F at
+1920x1080 (scale 1920, 1080), output 3840x2160, no exposure texture, pre-exposure 1, constant render size. The jitter
+equals `View.TemporalJitterPixels` of the same frame (NVIDIA's Unreal plugin convention). The probe reads the frame's
+View values at its first skinned draw (vertex shader `b1`, a root descriptor; ReShade 6.8 reports the root
+descriptors of a version 1.1 root signature as `push_descriptors_with_ranges_and_flags`).
+
+- **Jitter**: 8 positions. The jitter code (`0x1200E45`) wraps at `r.TemporalAASamples` (Unreal's 8; the engine's
+  temporal upscaling path, which would raise it, is not used) and always uses Halton. Guide 3.7.1.1: at least 32 in
+  Performance mode. `JitterPhases=32` (F5) gives the 32-position sequence (confirmed in the log).
+- **Pre-exposure**: the engine pre-exposes the scene colour (`View_PreExposure` 0.000198 in Kalm, 0.0625 on the title
+  screen) and the game passes 1. Guide 3.9.2: pass it at every evaluation. `DlssPreExposure=1` (F4) does; the log
+  shows the passed value equal to the View value. At first only an evaluation after a character draw in the same
+  frame got it, so a frame without one fell back to 1, about 5000 times the value in Kalm; since 2026-10-15 such a
+  frame gets the latest value read (not yet checked in game).
+- **Mip bias**: `View_MaterialTextureMipBias` is 0, but the materials do not use it. They sample every texture through
+  one shared sampler (`View_SharedAnisotropic4XWrappedSampler`) with `SampleBias(View_TemporalSamplerBias.y)`, a
+  Square Enix addition (View offset 2480). The jitter setup stores it at `0x1201185` (view `+0xC40`):
+  (s, log2 s, s, log2 s), s = render width / output width, so -1 in Performance mode. Guide 3.5 asks for
+  log2(s) - 1 (-2), no less than log2(s) when that shimmers. The log2 is `FMath::Log2`: `logf` times the constant
+  at `0x6FE4068`, which every Log2 in the engine shares (not a place to change anything). `r.MipMapLODBias` (Unreal's
+  global bias, into each texture's own sampler; changing it live works through the console variable sinks) should not
+  reach these materials, which sample through the shared View sampler instead. Two screenshots at 0 and -2 agree
+  (`shot_bands.py` tiles with a two-shot motion mask, 599 still, textured tiles): the 2-4 px energy median is 0.996,
+  and 0.5% of the tiles have at least 5% more fine detail at -2, where `ExtraMipBias` below gives 11-12% measured the
+  same way. A median alone could not have told: `ExtraMipBias` leaves it unchanged too. `ExtraMipBias` sends the four
+  stores to a routine that adds the extra bias to `.y` and `.w` while the game's value is negative
+  (`src/texture_bias_code.hpp`, checked by `tests/bias_routine_test`).
+- The game creates a D3D12 device at startup only to destroy it again, so ReShade loads the add-on twice. The add-on
+  puts back everything it changed (console variables, NGX pointers, the stores) when it is unloaded, so the second
+  load finds the game's own values (the first jitter A/B compared 32 with 32 because of this).
+- In game: F5 (8/32) and F4 (pre-exposure) made no difference the user noticed.
+
+## `ExtraMipBias` in game (2026-10-14)
+
+Kalm market square, 4K, DLSS Performance (preset M), HDR, with the FF7RebirthTextureUpscaler mod installed (2x top
+mips for about 10,000 environment colour textures of 256-1024 px). Camera still, ReShade screenshots (F11) at a bias of
+-2 (extra on), -1 (End: the game's) and -2 again, about 20 s apart; the add-on's log line `texture bias` (read from
+the View buffer the draws bind) confirmed each value.
+
+- Method (`tools/decode_png16.ps1`, `tools/shot_bands.py`): ReShade saves HDR screenshots as 16-bit PNGs (PQ,
+  BT.2020), of which Pillow reads only the high byte, so WIC decodes them. PQ-encoded luminance, FFT octave bands,
+  64-pixel tiles. Tiles that move between the two -2 shots (a 16-pixel block mean changes by 0.01 PQ or more) or touch
+  the frame border are dropped, and the textured half of the rest is compared: 566 tiles.
+- Fine detail (2-4 px) energy, -2 against -1: median 1.000 (10th-90th percentile 0.977-1.053), against 0.994
+  (0.980-1.003) between the two -2 shots; the coarser bands agree within 0.1%. Enlarged crops of roofs, walls, wood
+  and a sign look identical. The user: "I feel like it looks better but that could just be placebo". No measurable
+  gain in median texture detail, but the upper tail is not noise: 10.6% of the tiles have at least 5% more fine detail
+  in the first -2 shot than at -1 and 12.5% in the second, while 1.4% differ that much between the two -2 shots and
+  1.6% have that much more at -1. So some surfaces do get a little sharper at -2; this test does not show which, or
+  how they look in motion.
+- The -1 shot differs from the -2 shots more than they differ from each other (mean squared band difference ratio
+  1.9-2.2 against the first -2 shot, 1.6-1.8 against the second, similar at every scale) without any change in the
+  median detail energy. Not explained; part of it may come from the method, since the motion mask keeps the tiles
+  where the two -2 shots agree.
+- Control: `ExtraMipBias=3` through the overlay (a bias of +2) made textures obviously blurry: the cobblestone grain
+  and the engraving on Cloud's sword are gone (the user: "3 is obviously blurrier"). Fine-band energy is 0.76 of the
+  -1 shot in the tiles a two-shot mask keeps; the real loss is larger, since that mask drops the tiles the blur
+  changed most. So the redirected stores reach the materials, characters included.
+- Why, in part: a bias only chooses among the mips a texture has. The texture mod's probe build (its added top mips
+  drawn as a checkerboard, DLSS Performance, the game's -1) showed walls, beams and boards near the camera at their
+  top mip, so -2 asks them for a level that does not exist. The floor and farther surfaces showed their original mips
+  there, so -2 can give them a finer level, which would fit the tiles that gained. Untested: whether texture streaming
+  holds finer mips of distant surfaces back (`r.Streaming.PoolSize` is 4000 MB at `TextureQuality@2` in
+  `WindowsScalability.ini`; `r.Streaming.Boost` and the other streaming variables exist in the executable).
+- Result: `ExtraMipBias` defaults to 0, which leaves the game's code alone. `JitterPhases=32` and `DlssPreExposure=1`
+  stay on: the guide asks for them and they showed no downside.
+
 ## Open
 
 1. A RenderDoc capture with the add-on active, run through `skin_frames.py`: the stale rows should be gone.
 2. Crowded places (Gold Saucer, Junon) may have more than 64 budgeted characters; the rest are still throttled and
    covered by the motion vector fix.
+3. The extra mip bias: which surfaces gain at -2 and how they look in motion; whether a larger streaming pool or
+   `r.Streaming.Boost` gives distant surfaces finer mips.
+4. DLAA (s = 1): the game's bias is 0 where the guide asks for -1; the extra bias only applies while the game's value
+   is negative.
+5. The pre-exposure for frames without a character draw (the latest value read, since 2026-10-15): check in game that
+   the counter in the overlay's DLSS hooks line grows only in such frames and nothing flickers.
