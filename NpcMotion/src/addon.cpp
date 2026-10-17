@@ -89,6 +89,15 @@ float* g_bias_value = nullptr;   // {extra bias, 0, 0, 0}, read by the redirecte
 int g_interpolated_characters = -1;
 std::string g_budget_status = "the game's";
 int g_pre_exposure_key = 0;
+// Motion vectors for scenery that moves in place, such as trees and plants in the wind (WindMotionVectors). Its
+// materials move its vertices (World Position Offset), and UE 4.26 writes that motion only with
+// r.VertexDeformationOutputsVelocity, which the game leaves at 0: the scene proxy constructor then marks a movable or
+// stationary primitive whose materials move its vertices as always having velocity. 2 also lets static primitives
+// through that check. 0 = the game's: such scenery only gets the camera's motion. Applies at startup.
+int g_wind_motion_vectors = 0;
+std::string g_wind_status = "the game's (camera motion only)";
+uint8_t* g_mobility_check = nullptr;  // the constructor's jump past static primitives, while replaced
+uint8_t g_mobility_original[6];
 
 // Values changed in the game's memory and what they held before, written back when ReShade unloads the add-on. The
 // game creates a D3D12 device at startup only to destroy it again, so the add-on is loaded twice, and the second load
@@ -206,7 +215,7 @@ void SetEnabled(bool enabled) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Console variables: animation budget, jitter sequence, texture mip bias
+// Console variables: animation budget, jitter sequence, wind motion vectors, texture mip bias
 
 // The game's executable: its code and its read-only data.
 struct Image {
@@ -265,17 +274,25 @@ std::vector<const uint8_t*> NameLoads(const wchar_t* name) {
   return loads;
 }
 
+// The length of a store of the flags argument (mov dword ptr [rsp+20h], r32 or imm32) at p, 0 if there is none.
+size_t FlagsStoreLength(const uint8_t* p) {
+  if (p[0] == 0x89 && (p[1] & 0xC7) == 0x44 && p[2] == 0x24 && p[3] == 0x20) return 4;
+  if (p[0] == 0xC7 && p[1] == 0x44 && p[2] == 0x24 && p[3] == 0x20) return 8;
+  return 0;
+}
+
 // Finds a console variable's storage in the game's executable from the code that registers it, which loads the name
 // into rdx. FAutoConsoleVariableRef (kRef): the variable's address is loaded into r8 shortly before
 // (lea r8, [rip+X]). TAutoConsoleVariable (kAuto): the static object is loaded into rcx right after (lea rcx, [rip+X],
-// the very next instruction) and points to its value at +0x10 (TConsoleVariableData: game-thread then render-thread
-// copy).
+// the next instruction or the one after the store of the flags argument) and points to its value at +0x10
+// (TConsoleVariableData: game-thread then render-thread copy).
 enum class CVarKind { kRef, kAuto };
 void* FindConsoleVariable(const wchar_t* name, CVarKind kind = CVarKind::kRef) {
   const Image& image = GameImage();
   for (const uint8_t* load : NameLoads(name)) {
     if (kind == CVarKind::kAuto) {
       const uint8_t* p = load + 7;
+      if (image.InText(p, 8)) p += FlagsStoreLength(p);
       if (image.InText(p, 7) && p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x0D)
         return *reinterpret_cast<void* const*>(RipTarget(p, 7) + 0x10);
       continue;
@@ -288,6 +305,14 @@ void* FindConsoleVariable(const wchar_t* name, CVarKind kind = CVarKind::kRef) {
   return nullptr;
 }
 
+bool WriteCode(uint8_t* at, const uint8_t* bytes, size_t size) {
+  DWORD old;
+  if (!VirtualProtect(at, size, PAGE_EXECUTE_READWRITE, &old)) return false;
+  memcpy(at, bytes, size);
+  VirtualProtect(at, size, old, &old);
+  FlushInstructionCache(GetCurrentProcess(), at, size);
+  return true;
+}
 
 // Writes an integer console variable before the world exists, after checking that it holds a plausible value.
 bool SetIntVariable(const wchar_t* name, int32_t lo, int32_t hi, int32_t value, int32_t* before) {
@@ -368,6 +393,74 @@ void ApplyJitter() {
   if (g_jitter_phases > 0) SetJitterPhases(true);
 }
 
+// The scene proxy constructor's mobility check before it asks r.VertexDeformationOutputsVelocity, as compiled:
+//   cmp al, 2 (movable); je +8; cmp al, 1 (stationary); jne <skip>; mov rcx, [rip+lookup]
+// where `lookup` holds the game's FindConsoleVariable result for that variable. Returns the jne if there is exactly one.
+uint8_t* FindMobilityCheck() {
+  const Image& image = GameImage();
+  std::vector<const uint8_t*> lookups;  // mov [rip+X], rax right after a lookup of the name
+  for (const uint8_t* load : NameLoads(L"r.VertexDeformationOutputsVelocity")) {
+    for (const uint8_t* p = load + 7; p < load + 40 && image.InText(p, 7); ++p) {
+      if (p[0] == 0x48 && p[1] == 0x89 && p[2] == 0x05) {
+        lookups.push_back(RipTarget(p, 7));
+        break;
+      }
+    }
+  }
+  constexpr uint8_t kCheck[] = {0x3C, 0x02, 0x74, 0x08, 0x3C, 0x01, 0x0F, 0x85};
+  uint8_t* found = nullptr;
+  for (size_t i = 0; i + sizeof(kCheck) + 4 + 7 <= image.text_size; ++i) {
+    uint8_t* const p = image.text + i;
+    if (p[0] != kCheck[0] || memcmp(p, kCheck, sizeof(kCheck)) != 0) continue;
+    const uint8_t* const mov = p + sizeof(kCheck) + 4;
+    if (mov[0] != 0x48 || mov[1] != 0x8B || mov[2] != 0x0D ||
+        std::find(lookups.begin(), lookups.end(), RipTarget(mov, 7)) == lookups.end())
+      continue;
+    if (found != nullptr) return nullptr;
+    found = p + 6;
+  }
+  return found;
+}
+
+void ApplyWindMotionVectors() {
+  if (g_wind_motion_vectors <= 0) return;
+  auto* const value =
+      static_cast<int32_t*>(FindConsoleVariable(L"r.VertexDeformationOutputsVelocity", CVarKind::kAuto));
+  if (value == nullptr || value[0] < 0 || value[0] > 1 || value[1] < 0 || value[1] > 1) {
+    g_wind_status = "could not be switched on (r.VertexDeformationOutputsVelocity not found)";
+    Log(reshade::log::level::warning,
+        "Wind motion vectors: r.VertexDeformationOutputsVelocity not found or unexpected; left as the game set it.");
+    return;
+  }
+  const int32_t before = value[0];
+  Remember(&value[0]);
+  Remember(&value[1]);
+  value[0] = value[1] = 1;
+  std::string scope = "movable and stationary scenery";
+  if (g_wind_motion_vectors >= 2) {
+    uint8_t* const check = FindMobilityCheck();
+    constexpr uint8_t kNop6[] = {0x66, 0x0F, 0x1F, 0x44, 0x00, 0x00};
+    if (check != nullptr) {
+      memcpy(g_mobility_original, check, sizeof(g_mobility_original));
+      if (WriteCode(check, kNop6, sizeof(kNop6))) {
+        g_mobility_check = check;
+        scope = "all scenery, static included";
+      }
+    }
+    if (g_mobility_check == nullptr)
+      Log(reshade::log::level::warning, "Wind motion vectors: the check that skips static scenery was not found.");
+  }
+  g_wind_status = "on for " + scope;
+  Log(reshade::log::level::info, "Wind motion vectors on for " + scope + " (r.VertexDeformationOutputsVelocity was " +
+                                     std::to_string(before) + ").");
+}
+
+void RestoreMobilityCheck() {
+  if (g_mobility_check == nullptr) return;
+  WriteCode(g_mobility_check, g_mobility_original, sizeof(g_mobility_original));
+  g_mobility_check = nullptr;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Texture mip bias
 
@@ -392,15 +485,6 @@ uint8_t* FindBiasStores() {
     found = image.text + i;
   }
   return found;
-}
-
-bool WriteCode(uint8_t* at, const uint8_t* bytes, size_t size) {
-  DWORD old;
-  if (!VirtualProtect(at, size, PAGE_EXECUTE_READWRITE, &old)) return false;
-  memcpy(at, bytes, size);
-  VirtualProtect(at, size, old, &old);
-  FlushInstructionCache(GetCurrentProcess(), at, size);
-  return true;
 }
 
 // At startup, before the game renders (no thread is in the stores while they are replaced).
@@ -465,6 +549,7 @@ void OnInitDevice(device*) {
   std::call_once(once, [] {
     ApplyAnimationBudget();
     ApplyJitter();
+    ApplyWindMotionVectors();
     ApplyMipBias();
   });
 }
@@ -801,6 +886,8 @@ void OnOverlay(effect_runtime*) {
   }
   ImGui::Text("Skinned pipelines with previous bones: %zu", pipelines);
   ImGui::Text("Animation budget: %s (AnimationBudget in the ini, applies at the next start)", g_budget_status.c_str());
+  ImGui::Text("Wind motion vectors: %s (WindMotionVectors in the ini, applies at the next start)",
+              g_wind_status.c_str());
   if (!g_reflection.initialized()) ImGui::Text("Not working: %s", g_reflection_error.c_str());
   if (g_jitter_phases > 0 && g_taa_samples != nullptr) {
     bool on = g_jitter_on;
@@ -858,6 +945,7 @@ void Initialize(HMODULE module) {
   g_pre_exposure_key = ReadIniInt(L"PreExposureKey", 0);
   g_extra_mip_bias = ReadIniFloat(L"ExtraMipBias", NAN);
   g_mip_bias_key = ReadIniInt(L"MipBiasKey", 0);
+  g_wind_motion_vectors = ReadIniInt(L"WindMotionVectors", 0);
   const bool probe = ReadIniInt(L"DlssProbe", 0) != 0;
   const bool pre_exposure = ReadIniInt(L"DlssPreExposure", 0) != 0;
   if (probe || pre_exposure) {
@@ -903,6 +991,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       if (reserved == nullptr) {
         npcmotion::dlss_probe::Shutdown();
         RestoreBiasStores();
+        RestoreMobilityCheck();
         RestoreGameValues();
       }
       break;
