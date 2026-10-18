@@ -69,11 +69,11 @@ for the session; the ini sets what the game starts with.
    Win64\FF7RebirthNpcMotion\dxcompiler.dll
    ```
    The add-on reads shader names with Microsoft's `dxcompiler.dll`. With the
-   [FF7 Rebirth Hair Fix](https://github.com/masonpetrosky/FF7RebirthHairFix) installed, its
-   `FF7RebirthHairFix\dxcompiler.dll` works too.
+   [FF7 Rebirth Vegetation Fix](https://github.com/masonpetrosky/FF7RebirthVegetationFix) installed, its
+   `FF7RebirthVegetationFix\dxcompiler.dll` works too.
 
-Tested with game build 23447986 (Steam, October 2026) and ReShade 6.8.0 on an RTX 5070 Ti, alongside the Hair Fix,
-[FF7 Rebirth Anisotropic Filtering](https://github.com/masonpetrosky/FF7RebirthAnisotropic) and
+Tested with game build 23447986 (Steam, October 2026) and ReShade 6.8.0 on an RTX 5070 Ti, alongside the
+Vegetation Fix, [FF7 Rebirth Anisotropic Filtering](https://github.com/masonpetrosky/FF7RebirthAnisotropic) and
 [RenoDX](https://github.com/clshortfuse/renodx)'s FF7 Rebirth add-on. To uninstall, delete
 `FF7RebirthNpcMotion.addon64`, `FF7RebirthNpcMotion.ini` and the `FF7RebirthNpcMotion` folder.
 

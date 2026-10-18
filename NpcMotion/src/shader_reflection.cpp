@@ -37,7 +37,8 @@ bool ShaderReflection::Initialize(const std::filesystem::path* directories, size
       return true;
     }
   }
-  *error = "dxcompiler.dll not found next to the add-on (FF7RebirthNpcMotion or FF7RebirthHairFix folder)";
+  *error = "dxcompiler.dll not found next to the add-on (FF7RebirthNpcMotion, FF7RebirthVegetationFix or "
+           "FF7RebirthHairFix folder)";
   return false;
 }
 

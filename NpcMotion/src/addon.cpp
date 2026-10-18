@@ -864,7 +864,8 @@ void Initialize(HMODULE module) {
     g_probe_key = probe ? ReadIniInt(L"DlssProbeKey", 117) : 0;  // F6
     npcmotion::dlss_probe::Initialize(probe ? dir / "FF7RebirthNpcMotion_dlss.log" : fs::path(), pre_exposure);
   }
-  const fs::path dll_dirs[] = {dir / "FF7RebirthNpcMotion", dir / "FF7RebirthHairFix"};
+  // The Vegetation Fix ships the same dxcompiler.dll; before its 0.2.0 it was called the Hair Fix.
+  const fs::path dll_dirs[] = {dir / "FF7RebirthNpcMotion", dir / "FF7RebirthVegetationFix", dir / "FF7RebirthHairFix"};
   if (g_reflection.Initialize(dll_dirs, std::size(dll_dirs), &g_reflection_error))
     Log(reshade::log::level::info, "Using " + g_reflection.path().string() + (g_enabled ? "; fix on." : "; fix off."));
   else

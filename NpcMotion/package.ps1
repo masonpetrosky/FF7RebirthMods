@@ -3,7 +3,7 @@ param([string]$Version = '')
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-# Pinned DirectX Shader Compiler release (the one the FF7 Rebirth Hair Fix ships); only dxcompiler.dll is shipped.
+# Pinned DirectX Shader Compiler release (the one FF7 Rebirth Vegetation Fix ships); only dxcompiler.dll is shipped.
 $dxcUrl = 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip'
 $dxcSha256 = 'AD31B1FC8443175D204F77A611FDB3EF2EC42759BDC2F1167368DE24A4A7E7F1'
 
