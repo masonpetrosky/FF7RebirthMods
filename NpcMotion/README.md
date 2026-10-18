@@ -58,10 +58,24 @@ for the session; the ini sets what the game starts with.
 
 ## Installation
 
-Requires ReShade 6.x **with full add-on support** for `ff7rebirth_.exe` (DirectX 12) and the
-[FF7 Rebirth Hair Fix](https://github.com/masonpetrosky/FF7RebirthHairFix) (the add-on uses its `FF7RebirthHairFix\dxcompiler.dll`; a
-`FF7RebirthNpcMotion\dxcompiler.dll` next to the add-on works too). Copy `FF7RebirthNpcMotion.addon64` and
-`FF7RebirthNpcMotion.ini` into `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`.
+1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
+   [reshade.me](https://reshade.me)). Point it at
+   `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
+2. Download the latest `FF7RebirthNpcMotion-v*.zip` from [Releases](../../releases) and extract it into the same
+   `Win64` folder, so you end up with:
+   ```
+   Win64\FF7RebirthNpcMotion.addon64
+   Win64\FF7RebirthNpcMotion.ini
+   Win64\FF7RebirthNpcMotion\dxcompiler.dll
+   ```
+   The add-on reads shader names with Microsoft's `dxcompiler.dll`. With the
+   [FF7 Rebirth Hair Fix](https://github.com/masonpetrosky/FF7RebirthHairFix) installed, its
+   `FF7RebirthHairFix\dxcompiler.dll` works too.
+
+Tested with game build 23447986 (Steam, October 2026) and ReShade 6.8.0 on an RTX 5070 Ti, alongside the Hair Fix,
+[FF7 Rebirth Anisotropic Filtering](https://github.com/masonpetrosky/FF7RebirthAnisotropic) and
+[RenoDX](https://github.com/clshortfuse/renodx)'s FF7 Rebirth add-on. To uninstall, delete
+`FF7RebirthNpcMotion.addon64`, `FF7RebirthNpcMotion.ini` and the `FF7RebirthNpcMotion` folder.
 
 ## Settings
 
@@ -84,7 +98,9 @@ window is in front and neither Alt nor Ctrl is held.
 
 Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthNpcMotion.addon64`,
 `build\reflect_test.exe` (checks the bone register lookup on shaders saved from a capture) and
-`build\bias_routine_test.exe` (runs the texture bias routine the way the game enters it).
+`build\bias_routine_test.exe` (runs the texture bias routine the way the game enters it). `.\package.ps1` also
+assembles the release zip in `dist\`, with `dxcompiler.dll` from a pinned DirectX Shader Compiler release; pushing a
+`v*` tag builds and publishes it on GitHub.
 
 ## Investigation
 
