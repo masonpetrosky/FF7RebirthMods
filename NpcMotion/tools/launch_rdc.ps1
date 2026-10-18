@@ -10,11 +10,11 @@ $ErrorActionPreference = 'Stop'
 
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY VII REBIRTH'
 $win64 = Join-Path $game 'End\Binaries\Win64'
-# RenderDoc 1.46 and a Python with the standard library; by default the Elden Ring DLSS project's copies next to this
-# repository (override with RENDERDOC_DIR and NPCMOTION_PYTHON).
-$tools = Join-Path $PSScriptRoot '..\..\EldenRingDLSS\.tools'
-$rd = Join-Path ($env:RENDERDOC_DIR ?? (Join-Path $tools 'renderdoc\RenderDoc_1.46_64')) 'renderdoccmd.exe'
-$python = $env:NPCMOTION_PYTHON ?? (Join-Path $tools 'venv\Scripts\python.exe')
+# RenderDoc 1.46 and a Python with the standard library; by default the shared copies in the Tools folder beside the
+# Projects folder that holds this repository (override with RENDERDOC_DIR and NPCMOTION_PYTHON).
+$tools = Join-Path $PSScriptRoot '..\..\..\Tools'
+$rd = Join-Path ($env:RENDERDOC_DIR ?? (Join-Path $tools 'RenderDoc\RenderDoc_1.46_64')) 'renderdoccmd.exe'
+$python = $env:NPCMOTION_PYTHON ?? (Join-Path $tools 'Python\analysis\Scripts\python.exe')
 $captures = Join-Path $PSScriptRoot '..\captures' | Resolve-Path
 $reshade = Join-Path $win64 'dxgi.dll'
 $reshadeOff = Join-Path $win64 'dxgi.dll.rdc-off'
