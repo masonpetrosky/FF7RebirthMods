@@ -56,7 +56,9 @@ def metadata(label: str, seconds: int) -> dict:
         "seconds": seconds,
         "mods": mods,
         "reshade_installed": (win64 / "dxgi.dll").exists(),
-        "hairfix_installed": (win64 / "FF7RebirthHairFix.addon64").exists(),
+        # The Vegetation Fix, called the Hair Fix before 0.2.0 (the key keeps the old name).
+        "hairfix_installed": any((win64 / name).exists()
+                                 for name in ("FF7RebirthVegetationFix.addon64", "FF7RebirthHairFix.addon64")),
         "texture_quality": next((l.split("=")[1] for l in settings.splitlines() if l.startswith("sg.TextureQuality=")), None),
     }
 
