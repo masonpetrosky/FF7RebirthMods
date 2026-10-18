@@ -35,8 +35,19 @@ measured.
 
 ## Installation
 
-Requires ReShade 6.x **with full add-on support** for `ff7rebirth_.exe` (DirectX 12). Copy
-`FF7RebirthAnisotropic.addon64` and `FF7RebirthAnisotropic.ini` into `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`.
+1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
+   [reshade.me](https://reshade.me)). Point it at
+   `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
+2. Download the latest `FF7RebirthAnisotropic-v*.zip` from [Releases](../../releases) and extract it into the same
+   `Win64` folder, so you end up with:
+   ```
+   Win64\FF7RebirthAnisotropic.addon64
+   Win64\FF7RebirthAnisotropic.ini
+   Win64\FF7RebirthAnisotropic\licenses\...
+   ```
+
+Tested with game build 23447986 (Steam, October 2026). To uninstall, delete `FF7RebirthAnisotropic.addon64`,
+`FF7RebirthAnisotropic.ini` and the `FF7RebirthAnisotropic` folder.
 
 ## Settings
 
@@ -48,7 +59,8 @@ Requires ReShade 6.x **with full add-on support** for `ff7rebirth_.exe` (DirectX
 
 ## Building
 
-Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthAnisotropic.addon64`.
+Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthAnisotropic.addon64`, and
+`.\package.ps1` also assembles the release zip in `dist\`; pushing a `v*` tag builds and publishes it on GitHub.
 
 ## License
 
