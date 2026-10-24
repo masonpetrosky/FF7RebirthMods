@@ -28,11 +28,24 @@ def select(inventory_csv: str, pattern: str, min_size: int, max_size: int, suffi
     return [path for _size, path in sorted(set(out))]
 
 
+def select_list(list_csv: str, inventory_csv: str) -> tuple[list[str], dict[str, int]]:
+    """A per-texture selection: CSV with columns texture (package path) and factor (2 or 4)."""
+    sizes = {package_path_from_file(r["path"]): max(int(r["width"]), int(r["height"]))
+             for r in csv.DictReader(open(inventory_csv, encoding="utf-8")) if not r["error"]}
+    factors = {r["texture"]: int(r["factor"]) for r in csv.DictReader(open(list_csv, encoding="utf-8"))}
+    # Smallest first, as in select().
+    return sorted(factors, key=lambda p: (sizes.get(p, 0), p)), factors
+
+
 def cmd_build(args: argparse.Namespace) -> None:
     from .game import Game
     from .pipeline import Pipeline, write_mod
 
-    packages = select(args.inventory, args.match, args.min_size, args.max_size, args.suffix)
+    if args.list:
+        packages, factors = select_list(args.list, args.inventory)
+    else:
+        packages = select(args.inventory, args.match, args.min_size, args.max_size, args.suffix)
+        factors = {}
     if args.exclude:
         lines = (line.split("#", 1)[0].strip() for line in open(args.exclude, encoding="utf-8"))
         excluded = {line for line in lines if line}
@@ -48,7 +61,7 @@ def cmd_build(args: argparse.Namespace) -> None:
     recent: deque[float] = deque(maxlen=50)
     for i, path in enumerate(packages, 1):
         try:
-            result, r = pipe.process(path)
+            result, r = pipe.process(path, factors.get(path, 2))
         except Exception as exc:  # noqa: BLE001 - keep going, report at the end
             print(f"[{i}/{len(packages)}] FAILED {path}: {exc}", flush=True)
             counts["failed"] = counts.get("failed", 0) + 1
@@ -64,7 +77,7 @@ def cmd_build(args: argparse.Namespace) -> None:
         print(f"[{i}/{len(packages)}] {result.status:9s} {result.seconds:5.1f}s eta {eta:4.1f}h {path}", flush=True)
     print(f"processed in {(time.time() - start) / 60:.1f} min: {counts}; writing container...", flush=True)
     # Results are re-created from the on-disk cache so they never all sit in memory at once.
-    utoc = write_mod(Path(args.out), args.mod_name, ((path, pipe.process(path)[1]) for path in done))
+    utoc = write_mod(Path(args.out), args.mod_name, ((path, pipe.process(path, factors.get(path, 2))[1]) for path in done))
     print(f"wrote {len(done)} textures to {utoc}")
 
 
@@ -91,6 +104,8 @@ def main(argv: list[str]) -> None:
     build.add_argument("--no-color-fix", action="store_true",
                        help="keep the model's colours (default: match each texture's local colours to the original)")
     build.add_argument("--fallback-cache", help="cache folder whose results to reuse when these settings have none")
+    build.add_argument("--list", help="CSV (texture, factor) of package paths to upscale by 2x or 4x; replaces "
+                       "--match/--suffix/--min-size/--max-size (see tools/texel_density.py)")
     build.add_argument("--probe", action="store_true",
                        help="replace every added top mip with a black/white checkerboard, to check in game that it is displayed")
     args = parser.parse_args(argv)

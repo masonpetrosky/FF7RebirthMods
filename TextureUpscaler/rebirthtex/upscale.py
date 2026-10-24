@@ -68,6 +68,18 @@ class Upscaler:
         """image: HxWx3 float32 in [0, 1] (sRGB-encoded for color). Returns (H*s/shrink)x(W*s/shrink)x3:
         shrink box-filters the model output on the GPU, in linear light when srgb is set. match applies
         match_colors against the input; mask (HxW in [0, 1], e.g. alpha) marks the input texels it uses."""
+        source, out = self.infer(image, wrap)
+        if shrink > 1:
+            out = downscale(out, shrink, srgb)
+        if match:
+            weights = None if mask is None else torch.from_numpy(mask)[None, None].cuda()
+            out = match_colors(out, source, srgb, wrap, weights)
+        return out[0].permute(1, 2, 0).cpu().numpy()
+
+    @torch.inference_mode()
+    def infer(self, image: np.ndarray, wrap: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
+        """Runs the model over the whole image in tiles. Returns (input, output) as NCHW GPU tensors, the output
+        at the model's full scale and clamped to [0, 1]."""
         h, w, _ = image.shape
         pad = self.overlap
         source = torch.from_numpy(image).permute(2, 0, 1)[None].cuda()
@@ -91,13 +103,49 @@ class Upscaler:
                 wgt = (wy[:, None] * wx[None, :])[None, None]
                 out[:, :, y0 * s:y1 * s, x0 * s:x1 * s] += patch * wgt
                 weight[:, :, y0 * s:y1 * s, x0 * s:x1 * s] += wgt
-        out = (out / weight)[:, :, pad * s:(pad + h) * s, pad * s:(pad + w) * s].clamp(0, 1)
-        if shrink > 1:
-            out = downscale(out, shrink, srgb)
-        if match:
-            weights = None if mask is None else torch.from_numpy(mask)[None, None].cuda()
-            out = match_colors(out, source, srgb, wrap, weights)
-        return out[0].permute(1, 2, 0).cpu().numpy()
+        # in place: a 4096 px texture's 4x output is 3.3 GB per copy on the GPU
+        out.div_(weight)
+        del weight
+        out = out[:, :, pad * s:(pad + h) * s, pad * s:(pad + w) * s].clamp_(0, 1)
+        return source, out
+
+    @torch.inference_mode()
+    def upscale_levels(self, image: np.ndarray, factors: list[int], wrap: bool = True, srgb: bool = True,
+                       match: bool = False, mask: np.ndarray | None = None) -> list[np.ndarray]:
+        """Like upscale, but returns one image per factor in `factors` (each dividing the model scale), all
+        box-filtered from the same model output, so stacked mips agree with each other."""
+        source, out = self.infer(image, wrap)
+        weights = None if mask is None else torch.from_numpy(mask)[None, None].cuda()
+        levels = []
+        for factor in factors:
+            level = downscale(out, self.scale // factor, srgb) if factor < self.scale else out
+            if match:
+                level = match_colors(level, source, srgb, wrap, weights)
+            levels.append(level[0].permute(1, 2, 0).cpu().numpy())
+        return levels
+
+    @torch.inference_mode()
+    def upscale_normals(self, xy: np.ndarray, factors: list[int], wrap: bool = True) -> list[np.ndarray]:
+        """Tangent-space normal map: xy is HxWx2 in [-1, 1] (Z is reconstructed). Runs the model on the encoded
+        normal, keeps the original's low frequencies (each original texel's block of the result is shifted so
+        its average matches the original normal) and renormalizes. Returns HxWx2 X/Y per factor in `factors`."""
+        z = np.sqrt(np.clip(1.0 - (xy ** 2).sum(-1, keepdims=True), 0.0, 1.0))
+        original = np.concatenate([xy, z], -1).astype(np.float32)
+        source, out = self.infer((original + 1.0) * 0.5, wrap)
+        normals = out.mul_(2.0).sub_(1.0)
+        del out
+        reference = source * 2.0 - 1.0
+        s = self.scale
+        offset = reference - F.avg_pool2d(normals, s)
+        offset = F.pad(offset, (1, 1, 1, 1), mode="circular" if wrap else "replicate")
+        normals += F.interpolate(offset, scale_factor=s, mode="bilinear", align_corners=False)[..., s:-s, s:-s]
+        normals /= normals.norm(dim=1, keepdim=True).clamp(min=1e-6)
+        levels = []
+        for factor in factors:
+            level = F.avg_pool2d(normals, s // factor) if factor < s else normals
+            level = level / level.norm(dim=1, keepdim=True).clamp(min=1e-6)
+            levels.append(level[0, :2].permute(1, 2, 0).cpu().numpy())
+        return levels
 
 
 def srgb_to_linear(x: torch.Tensor) -> torch.Tensor:
@@ -108,11 +156,17 @@ def linear_to_srgb(x: torch.Tensor) -> torch.Tensor:
     return torch.where(x <= 0.0031308, x * 12.92, 1.055 * x.clamp(min=0) ** (1 / 2.4) - 0.055)
 
 
-def downscale(image: torch.Tensor, factor: int, srgb: bool) -> torch.Tensor:
-    """Box-filters an NCHW image by an integer factor, in linear light for sRGB data."""
-    data = srgb_to_linear(image) if srgb else image
-    data = F.avg_pool2d(data, factor)
-    return linear_to_srgb(data) if srgb else data
+def downscale(image: torch.Tensor, factor: int, srgb: bool, rows: int = 2048) -> torch.Tensor:
+    """Box-filters an NCHW image by an integer factor, in linear light for sRGB data (in strips of `rows`
+    output rows, so a 16384 px image never needs full-size temporaries)."""
+    if not srgb:
+        return F.avg_pool2d(image, factor)
+    out_h = image.shape[2] // factor
+    strips = []
+    for y in range(0, out_h, rows):
+        part = image[:, :, y * factor:min(out_h, y + rows) * factor]
+        strips.append(linear_to_srgb(F.avg_pool2d(srgb_to_linear(part), factor)))
+    return torch.cat(strips, 2)
 
 
 def _blur(t: torch.Tensor, sigma: float, wrap: bool) -> torch.Tensor:
