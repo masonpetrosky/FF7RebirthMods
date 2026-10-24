@@ -35,6 +35,10 @@ original mips.
 - `tools/audit_mod.py` ranks the textures in a build by how much they change the look, to pick
   any to keep at their original size (`build --exclude`); see `docs/batch.md`.
 - texconv (DirectXTex) re-encodes to the texture's original block format.
+- `tools/texel_density.py` estimates how much world each environment texture's texel covers, from
+  the static meshes' UV densities and the textures their materials use, and suggests which
+  textures need 2x or 4x to reach the game's typical density (the median colour texture, about
+  0.39 cm per texel); `tools/rd_texel.py` measures the same in a RenderDoc capture to check it.
 
 ## Usage
 
