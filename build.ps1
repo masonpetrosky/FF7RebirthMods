@@ -1,5 +1,6 @@
-# Builds FF7RebirthNpcMotion.addon64 with the newest installed Visual Studio (x64, Release).
-param([string]$Config = 'Release')
+# Builds every add-on (or only the given CMake targets) with the newest installed Visual Studio (x64, Release).
+# Output: build\<Mod>\FF7Rebirth<Mod>.addon64, e.g. .\build.ps1 or .\build.ps1 FF7RebirthNpcMotion.
+param([string[]]$Target = @(), [string]$Config = 'Release')
 $ErrorActionPreference = 'Stop'
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -15,9 +16,9 @@ Push-Location $PSScriptRoot
 try {
   cmake -S . -B build -G Ninja "-DCMAKE_BUILD_TYPE=$Config"
   if ($LASTEXITCODE) { throw 'CMake configure failed.' }
-  cmake --build build
+  if ($Target) { cmake --build build --target @Target } else { cmake --build build }
   if ($LASTEXITCODE) { throw 'Build failed.' }
-  Get-Item build\FF7RebirthNpcMotion.addon64
+  Get-ChildItem build\*\*.addon64
 } finally {
   Pop-Location
 }

@@ -1,8 +1,5 @@
-.venv/
-__pycache__/
-*.pyc
-/previews/
-/out/
-/work/
+# Local data: the upscaling model, downloaded tools, build work and previews
 /models/
 /bin/
+/work/
+/previews/

@@ -40,7 +40,7 @@ The cost is small. In a town scene at 4K with DLSS Performance on an RTX 5070 Ti
 1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
    [reshade.me](https://reshade.me)). Point it at
    `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
-2. Download the latest `FF7RebirthAnisotropic-v*.zip` from [Releases](../../releases) and extract it into the same
+2. Download the latest `FF7RebirthAnisotropic-v*.zip` from [Releases](../../../releases) and extract it into the same
    `Win64` folder, so you end up with:
    ```
    Win64\FF7RebirthAnisotropic.addon64
@@ -61,10 +61,12 @@ Tested with game build 23447986 (Steam, October 2026). To uninstall, delete `FF7
 
 ## Building
 
-Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthAnisotropic.addon64`, and
-`.\package.ps1` also assembles the release zip in `dist\`; pushing a `v*` tag builds and publishes it on GitHub.
+Visual Studio 2022 or newer with the C++ x64 tools. In the repository root, `.\build.ps1` builds every add-on (this one
+is `build\Anisotropic\FF7RebirthAnisotropic.addon64`), and `.\package.ps1 Anisotropic` also assembles the release zip
+in `dist\`; pushing an `Anisotropic-v*` tag builds and publishes it on GitHub.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). `third_party/reshade` and `third_party/imgui` carry their own licenses. FINAL FANTASY VII
+MIT; see [LICENSE](../LICENSE). `third_party/reshade` and `third_party/imgui` in the repository root carry their own
+licenses. FINAL FANTASY VII
 REBIRTH is a trademark of Square Enix; this project is not affiliated with or endorsed by Square Enix.

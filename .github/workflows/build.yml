@@ -1,0 +1,45 @@
+name: Build
+
+# Pushes and pull requests build and package every add-on. A tag <Mod>-v<version> (e.g. NpcMotion-v0.2.0) builds that
+# one mod and publishes its zip as a GitHub release, with <Mod>/docs/release-notes.md as the notes.
+on:
+  push:
+    branches: [main]
+    tags: ['*-v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.ref_type != 'tag'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and package every add-on
+        shell: pwsh
+        run: foreach ($mod in 'Anisotropic', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix') { ./package.ps1 -Mod $mod }
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: FF7RebirthMods
+          path: dist/*.zip
+
+  release:
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build, package and publish the tagged mod
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $mod, $version = $env:GITHUB_REF_NAME -split '-v', 2
+          ./package.ps1 -Mod $mod -Version $version
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist/*.zip).FullName --title "FF7Rebirth$mod v$version" --notes-file "$mod/docs/release-notes.md"

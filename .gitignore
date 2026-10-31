@@ -1,0 +1,14 @@
+# Build output (the root build and any single-mod build), release zips, editor files
+build/
+dist/
+out/
+.vs/
+*.user
+# Python
+.venv/
+__pycache__/
+*.pyc
+# RenderDoc frame captures of the game and what the tools extract from them (tools/launch_rdc.ps1 writes here)
+/captures/
+# The game's own config files, unpacked from its pak for reference (not ours to publish)
+/gamedata/

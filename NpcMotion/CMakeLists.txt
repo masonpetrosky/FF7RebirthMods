@@ -12,7 +12,7 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8>")
 configure_file(src/version.rc.in version.rc @ONLY)
 add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dlss_probe.cpp src/shader_reflection.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
-target_include_directories(FF7RebirthNpcMotion PRIVATE src third_party/reshade third_party/imgui)
+target_include_directories(FF7RebirthNpcMotion PRIVATE src ../third_party/reshade ../third_party/imgui)
 target_link_libraries(FF7RebirthNpcMotion PRIVATE dxguid)
 set_target_properties(FF7RebirthNpcMotion PROPERTIES SUFFIX ".addon64")
 

@@ -11,8 +11,8 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/permissive-;/utf-8>")
 set(WARNINGS "$<$<COMPILE_LANGUAGE:CXX>:/W4>")
 
 # DXIL container hash from the DirectX Shader Compiler (University of Illinois/NCSA license).
-add_library(dxilhash STATIC third_party/dxc/DxilHash.cpp)
-target_include_directories(dxilhash PUBLIC third_party/dxc)
+add_library(dxilhash STATIC ../third_party/dxc/DxilHash.cpp)
+target_include_directories(dxilhash PUBLIC ../third_party/dxc)
 target_compile_options(dxilhash PRIVATE /W0)
 
 # The add-on's own compute shaders, compiled to DXIL headers with the Windows SDK's dxc (which signs them with the
@@ -20,14 +20,14 @@ target_compile_options(dxilhash PRIVATE /W0)
 find_program(FXC fxc REQUIRED)
 get_filename_component(SDK_BIN_DIR ${FXC} DIRECTORY)
 find_program(DXC dxc HINTS ${SDK_BIN_DIR} NO_DEFAULT_PATH REQUIRED)
-set(SHADER_DIR ${CMAKE_BINARY_DIR}/shaders)
+set(SHADER_DIR ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 set(SHADER_HEADERS)
 function(shader symbol file profile entry)
   set(header ${SHADER_DIR}/${symbol}.h)
   add_custom_command(
     OUTPUT ${header}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
-    COMMAND ${DXC} -nologo -T ${profile} -E ${entry} -O3 -HV 2021 -Vn ${symbol} -Fh ${header} ${CMAKE_SOURCE_DIR}/src/${file}
+    COMMAND ${DXC} -nologo -T ${profile} -E ${entry} -O3 -HV 2021 -Vn ${symbol} -Fh ${header} ${CMAKE_CURRENT_SOURCE_DIR}/src/${file}
     DEPENDS src/${file}
     VERBATIM)
   set(SHADER_HEADERS ${SHADER_HEADERS} ${header} PARENT_SCOPE)
@@ -40,7 +40,7 @@ shader(kSoftComposite soft_edges.hlsl cs_6_0 Composite)
 configure_file(src/version.rc.in version.rc @ONLY)
 add_library(FF7RebirthVegetationAndHairFix SHARED src/addon.cpp src/dxil_patcher.cpp src/pipeline_recipe.cpp src/soft_edges.cpp
   ${SHADER_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
-target_include_directories(FF7RebirthVegetationAndHairFix PRIVATE src ${SHADER_DIR} third_party/reshade third_party/imgui)
+target_include_directories(FF7RebirthVegetationAndHairFix PRIVATE src ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
 target_compile_options(FF7RebirthVegetationAndHairFix PRIVATE ${WARNINGS})
 target_link_libraries(FF7RebirthVegetationAndHairFix PRIVATE dxilhash d3d12)
 set_target_properties(FF7RebirthVegetationAndHairFix PROPERTIES SUFFIX ".addon64")

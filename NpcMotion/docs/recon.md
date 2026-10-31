@@ -7,7 +7,7 @@ because that game draws none for enemies (`EldenRingDLSS/src/skin_motion.*`).
 
 - Game: Steam app 2909400, UE 4.26.1 (Square Enix fork, Streamline + DLSS/FSR plugins), `ff7rebirth_.exe`
   (2026-05-27 build). User settings: 4K output, DLSS at 50% (render 1920x1080), HDR.
-- RenderDoc 1.46 via `tools/launch_rdc.ps1` (ReShade off for the session, `steam_appid.txt`). The game asserts in
+- RenderDoc 1.46 via `tools/launch_rdc.ps1` (ReShade and the other hook DLLs off for the session, `steam_appid.txt`). The game asserts in
   `WindowsD3D12PipelineState.cpp:746` because RenderDoc refuses D3D12 pipeline libraries with data. The game turns
   the driver PSO cache on in `[WindowsNoEditor DeviceProfile]` (`D3D12.PSO.DriverOptimizedDiskCache=1`) and ignored
   both a user `Engine.ini` `[SystemSettings]` and a user `DeviceProfiles.ini` override (`-CVars=`/`+CVars=`), so
@@ -33,13 +33,13 @@ because that game draws none for enemies (`EldenRingDLSS/src/skin_motion.*`).
 - 159 of the 177 base pass draws are GPU-skinned; every one binds `BoneMatrices` and `PreviousBoneMatrices`
   (sub-allocated from 8 MB pools, one 64-byte bone = 4 float4 rows, `.xyz` used, layout `float4x3`), with
   `PerBoneMotionBlur=1`, `Primitive_DrawsVelocity=1`, `Primitive_OutputVelocity=1`.
-- `tools/velocity_view.py` (brightness only): every NPC, the dog, Cloud and the lamp posts are written; 6.6% of
+- `NpcMotion/tools/velocity_view.py` (brightness only): every NPC, the dog, Cloud and the lamp posts are written; 6.6% of
   pixels; motion p99 0.88 px, max 1.65 px.
 - Pixel history (`tools/rdc_pixhist.py`): each NPC pixel's velocity comes from its own skinned base pass draw.
-- Bones (`tools/rdc_bonerange.py`, over the bones each draw's vertices use): previous and current differ for the
+- Bones (`NpcMotion/tools/rdc_bonerange.py`, over the bones each draw's vertices use): previous and current differ for the
   NPCs (up to 7.5 cm translation terms), so the previous pose is real, not a copy of the current one.
 - Per-vertex motion from the vertex shader's `CURRENT_`/`PREVIOUS_CLIP_SPACE_POSITION` outputs
-  (`tools/rdc_postvs_motion.py`, TAA jitter removed) matches the velocity buffer: Cloud max 1.28 px (buffer 1.24),
+  (`NpcMotion/tools/rdc_postvs_motion.py`, TAA jitter removed) matches the velocity buffer: Cloud max 1.28 px (buffer 1.24),
   dog 1.63 (1.65), a gesturing NPC 1.10 (1.07). One NPC walking behind the market roof (hidden) moves 1-2 px.
 
 So within one frame the NPCs' motion vectors are present and consistent with the two poses the GPU holds. Not
@@ -48,8 +48,8 @@ the Elden Ring situation.
 ## Three consecutive frames: the cause (`ff7r_frame8977/8978/8979.rdc`, 2026-10-12)
 
 Kalm square, camera still, a man in a suit walking toward the camera beside Cloud, a crowd at mid distance.
-`tools/rdc_skinstate.py` dumps every skinned base pass draw (bones its vertices use, current and previous, and the
-vertex shader's clip positions); `tools/skin_frames.py` matches draws across frames (buffers, first index, nearest
+`NpcMotion/tools/rdc_skinstate.py` dumps every skinned base pass draw (bones its vertices use, current and previous, and the
+vertex shader's clip positions); `NpcMotion/tools/skin_frames.py` matches draws across frames (buffers, first index, nearest
 position) and compares, TAA jitter removed:
 
 | | 8977 -> 8978 | 8978 -> 8979 |

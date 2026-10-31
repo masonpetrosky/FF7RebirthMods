@@ -1,6 +1,6 @@
 """Dump the state of every skinned base pass draw of a capture, to compare consecutive frames (skin_frames.py).
 
-Run inside RenderDoc's embedded Python (tools/rdc.sh tools/rdc_skinstate.py) with:
+Run inside RenderDoc's embedded Python (tools/rdc.sh NpcMotion/tools/rdc_skinstate.py) with:
   RDC_FILE  path to the .rdc capture
   RDC_OUT   output directory (created): draws.json plus <eid>.bin per draw
 The base pass is found as the draws whose render targets include an R16G16_UNORM velocity target among 4 or more.

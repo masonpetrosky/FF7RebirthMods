@@ -50,9 +50,12 @@ uninstall, delete both.
 
 ## Building
 
-Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthShaderInjectorSync.addon64`.
+Visual Studio 2022 or newer with the C++ x64 tools. In the repository root, `.\build.ps1` builds every add-on (this one
+is `build\ShaderInjectorSync\FF7RebirthShaderInjectorSync.addon64`), and `.\package.ps1 ShaderInjectorSync` also
+assembles a zip in `dist\`.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). `third_party/reshade` and `third_party/imgui` carry their own licenses. FINAL FANTASY VII
+MIT; see [LICENSE](../LICENSE). `third_party/reshade` and `third_party/imgui` in the repository root carry their own
+licenses. FINAL FANTASY VII
 REBIRTH is a trademark of Square Enix; this project is not affiliated with or endorsed by Square Enix.

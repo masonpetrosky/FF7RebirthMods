@@ -4,16 +4,19 @@
 # relaunching it; all of it is undone when the game exits (or with -Restore after a crash of this script).
 # RenderDoc refuses D3D12 pipeline libraries and the game asserts on that, so psopatch.py turns the game's driver PSO
 # cache off in memory while RenderDoc holds the new process (--opt-delay-for-debugger); see psopatch.py.
-# Captures land in work\captures\ff7r_frame<N>.rdc; F12 captures in game.
+# Captures land in captures\ff7r_frame<N>.rdc at the repository root; F12 captures in game, tools\rdc_trigger.py
+# remotely.
 param([switch]$Restore)
 $ErrorActionPreference = 'Stop'
 
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY VII REBIRTH'
 $win64 = Join-Path $game 'End\Binaries\Win64'
+# RenderDoc 1.46 and a Python with the standard library; by default the shared copies in the Tools folder beside the
+# Projects folder that holds this repository (override with RENDERDOC_DIR and FF7REBIRTH_PYTHON).
 $tools = Join-Path $PSScriptRoot '..\..\..\Tools'
 $rd = Join-Path ($env:RENDERDOC_DIR ?? (Join-Path $tools 'RenderDoc\RenderDoc_1.46_64')) 'renderdoccmd.exe'
-$python = $env:REBIRTHTEX_PYTHON ?? (Join-Path $tools 'Python\analysis\Scripts\python.exe')
-$captures = Join-Path $PSScriptRoot '..\work\captures'
+$python = $env:FF7REBIRTH_PYTHON ?? (Join-Path $tools 'Python\analysis\Scripts\python.exe')
+$captures = Join-Path $PSScriptRoot '..\captures'
 New-Item -ItemType Directory -Force $captures | Out-Null
 $captures = Resolve-Path $captures
 $hooks = 'dxgi.dll', 'dsound.dll', 'd3d12.dll'

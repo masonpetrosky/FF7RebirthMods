@@ -1,6 +1,6 @@
 """Compare current and previous bones of skinned draws over the bones their vertices actually use.
 
-Run inside RenderDoc's embedded Python (tools/rdc.sh tools/rdc_bonerange.py) with:
+Run inside RenderDoc's embedded Python (tools/rdc.sh NpcMotion/tools/rdc_bonerange.py) with:
   RDC_FILE   path to the .rdc capture
   RDC_OUT    output text file (tab-separated)
   RDC_FIRST, RDC_LAST  event range (skinned draws: VS binds BoneMatrices and PreviousBoneMatrices)

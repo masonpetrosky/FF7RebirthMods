@@ -71,7 +71,7 @@ no light to borrow and is left out, as with a cutout.
    `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
    You don't need to pick any effect shaders.
 2. Download the latest `FF7RebirthVegetationAndHairFix-v*.zip` from
-   [Releases](../../releases) and extract it into the same `Win64` folder, so you end up with:
+   [Releases](../../../releases) and extract it into the same `Win64` folder, so you end up with:
    ```
    Win64\ff7rebirth_.exe
    Win64\dxgi.dll                                   (ReShade)
@@ -156,12 +156,15 @@ Delete `FF7RebirthVegetationAndHairFix.addon64`, `FF7RebirthVegetationAndHairFix
 ## Building
 
 Requires Visual Studio 2022 or newer with the C++ x64 tools (CMake and Ninja are included) and the
-Windows SDK (its `dxc` compiles the add-on's compute shaders).
+Windows SDK (its `dxc` compiles the add-on's compute shaders). In the repository root:
 
 ```powershell
-.\build.ps1      # build\FF7RebirthVegetationAndHairFix.addon64, build\dxilpatch.exe, build\softedges_test.exe
-.\package.ps1    # dist\FF7RebirthVegetationAndHairFix-v<version>.zip (downloads the pinned DXC release)
+.\build.ps1                        # every add-on; this one is build\VegetationAndHairFix\FF7RebirthVegetationAndHairFix.addon64,
+                                   # build\VegetationAndHairFix\dxilpatch.exe and softedges_test.exe
+.\package.ps1 VegetationAndHairFix # dist\FF7RebirthVegetationAndHairFix-v<version>.zip (downloads the pinned DXC release)
 ```
+
+Pushing a `VegetationAndHairFix-v*` tag builds and publishes the zip on GitHub.
 
 Developer tools:
 
@@ -177,6 +180,6 @@ Developer tools:
 
 ## License
 
-MIT; see [LICENSE](LICENSE). Third-party components are listed in
+MIT; see [LICENSE](../LICENSE). Third-party components are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). FINAL FANTASY VII REBIRTH is a trademark of
 Square Enix; this project is not affiliated with or endorsed by Square Enix.

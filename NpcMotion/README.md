@@ -61,7 +61,7 @@ for the session; the ini sets what the game starts with.
 1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
    [reshade.me](https://reshade.me)). Point it at
    `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
-2. Download the latest `FF7RebirthNpcMotion-v*.zip` from [Releases](../../releases) and extract it into the same
+2. Download the latest `FF7RebirthNpcMotion-v*.zip` from [Releases](../../../releases) and extract it into the same
    `Win64` folder, so you end up with:
    ```
    Win64\FF7RebirthNpcMotion.addon64
@@ -96,22 +96,24 @@ window is in front and neither Alt nor Ctrl is held.
 
 ## Building
 
-Visual Studio 2022 or newer with the C++ x64 tools: `.\build.ps1` builds `build\FF7RebirthNpcMotion.addon64`,
-`build\reflect_test.exe` (checks the bone register lookup on shaders saved from a capture) and
-`build\bias_routine_test.exe` (runs the texture bias routine the way the game enters it). `.\package.ps1` also
-assembles the release zip in `dist\`, with `dxcompiler.dll` from a pinned DirectX Shader Compiler release; pushing a
-`v*` tag builds and publishes it on GitHub.
+Visual Studio 2022 or newer with the C++ x64 tools. In the repository root, `.\build.ps1` builds every add-on; this
+one's files are `build\NpcMotion\FF7RebirthNpcMotion.addon64`, `build\NpcMotion\reflect_test.exe` (checks the bone
+register lookup on shaders saved from a capture) and `build\NpcMotion\bias_routine_test.exe` (runs the texture bias
+routine the way the game enters it). `.\package.ps1 NpcMotion` also assembles the release zip in `dist\`, with
+`dxcompiler.dll` from a pinned DirectX Shader Compiler release; pushing a `NpcMotion-v*` tag builds and publishes it on
+GitHub.
 
 ## Investigation
 
 `docs/recon.md` is the log: RenderDoc captures of Kalm (the game needs a small in-memory patch to run under RenderDoc,
-`tools/psopatch.py`), the base pass velocity, the bone buffers across three consecutive frames, the engine code that
-binds them, and the in-game measurements. `tools/` holds the capture and analysis scripts; `tools/decode_png16.ps1`
-and `tools/shot_bands.py` measure texture detail in screenshots of one spot (ReShade's 16-bit HDR PNGs).
+`tools/psopatch.py` in the repository root), the base pass velocity, the bone buffers across three consecutive frames,
+the engine code that binds them, and the in-game measurements. The repository's `tools/` folder holds the capture and
+analysis scripts that work for any FF7 Rebirth mod (`tools/decode_png16.ps1` and `tools/shot_bands.py` measure texture
+detail in screenshots of one spot, ReShade's 16-bit HDR PNGs); `NpcMotion/tools/` holds the skinning ones.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). `src/descriptors.*` is adapted from ReShade's descriptor tracking example
-(Copyright (C) 2021 Patrick Mours, BSD-3-Clause OR MIT); `third_party/reshade` and `third_party/imgui` carry their own
-licenses. FINAL FANTASY VII REBIRTH is a trademark of Square Enix; this project is not affiliated with or endorsed by
+MIT; see [LICENSE](../LICENSE). `src/descriptors.*` is adapted from ReShade's descriptor tracking example
+(Copyright (C) 2021 Patrick Mours, BSD-3-Clause OR MIT); `third_party/reshade` and `third_party/imgui` in the repository
+root carry their own licenses. FINAL FANTASY VII REBIRTH is a trademark of Square Enix; this project is not affiliated with or endorsed by
 Square Enix.

@@ -1,6 +1,6 @@
 """Per-vertex screen motion that the base pass vertex shader computes (CURRENT_ vs PREVIOUS_CLIP_SPACE_POSITION).
 
-Run inside RenderDoc's embedded Python (tools/rdc.sh tools/rdc_postvs_motion.py) with:
+Run inside RenderDoc's embedded Python (tools/rdc.sh NpcMotion/tools/rdc_postvs_motion.py) with:
   RDC_FILE  path to the .rdc capture
   RDC_OUT   output text file
   RDC_EIDS  comma-separated draw event IDs
