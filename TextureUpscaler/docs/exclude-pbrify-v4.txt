@@ -1,0 +1,7 @@
+# Textures kept at their original size: PBRify changed the look instead of adding detail.
+# Picked from tools\audit_mod.py rankings (sharp / grain) and side-by-side review, 2026-10-05.
+/Game/Environment/Building/Texture/T_Building_JNONT_05A_Emissive_C  # soft glow blobs became hard-edged
+/Game/Environment/Interior/Texture/T_Light_GS_01A_Emissive_C  # soft glowing lattice became hard-edged
+/Game/Environment/Building/Texture/T_Wall_GSEvent_06C_Emissive_C  # soft marquee bulbs became hard, mottled dots
+/Game/Environment/Interior/Texture/T_Signboard_GS_40A_C  # smooth sign surface became blotchy
+/Game/Environment/Interior/Texture/T_Light_ShinraYashiki_02A_C  # soft diagonal light bands became hard-edged
