@@ -1,0 +1,3 @@
+Fixes the smeared outlines of townspeople and other characters with DLSS, TAA and motion blur in FINAL FANTASY VII REBIRTH. Characters whose animation the game throttles no longer carry motion vectors for movement that didn't happen, and the game's animation budget may interpolate them so they move every frame. It also gives DLSS the 32 jitter positions and the real pre-exposure that NVIDIA's DLSS Programming Guide asks for.
+
+**Requires ReShade 6.x with full add-on support** (DirectX 12). Extract the zip into `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`. Tested with game build 23447986 (Steam, October 2026) and ReShade 6.8.0. See the README for details and settings.

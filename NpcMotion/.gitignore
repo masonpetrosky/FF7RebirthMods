@@ -1,0 +1,9 @@
+/build/
+/dist/
+/out/
+/.vs/
+*.user
+# Local investigation data: frame captures, the game's unpacked config, save backups
+/captures/
+/gamedata/
+/backups/
