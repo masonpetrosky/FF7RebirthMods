@@ -29,8 +29,8 @@ game creates it, for example
 and the overlay's Add-ons tab lists them with the number of times each was created.
 
 Tested with ReShade 6.8.0 alongside [RenoDX](https://github.com/clshortfuse/renodx)'s FF7 Rebirth add-on, the
-[FF7 Rebirth Vegetation Fix](https://github.com/masonpetrosky/FF7RebirthVegetationFix) and
-[FF7 Rebirth NPC Motion](https://github.com/masonpetrosky/FF7RebirthNpcMotion).
+[FF7 Rebirth Vegetation and Hair Fix](../VegetationAndHairFix) and
+[FF7 Rebirth NPC Motion](../NpcMotion).
 
 The cost is small. In a town scene at 4K with DLSS Performance on an RTX 5070 Ti, the median GPU time per frame was
 11.27 ms at 16x and 11.13 ms at the game's 4x, about 1% (15 seconds each, measured with PresentMon).

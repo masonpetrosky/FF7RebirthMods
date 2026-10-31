@@ -142,8 +142,8 @@ in the ini, 0 = none:
   `Win64\FF7RebirthVegetationAndHairFix\cache`. It's safe to delete that folder.
 - Tested with game version 1.005 (Steam build 23447986, October 2026), ReShade 6.8.0 and DLSS
   310.3 (preset L) on an RTX 5070 Ti, together with RenoDX HDR, Shader Injector 2.2.1 and the
-  [NPC Motion](https://github.com/masonpetrosky/FF7RebirthNpcMotion) and
-  [Anisotropic Filtering](https://github.com/masonpetrosky/FF7RebirthAnisotropic) add-ons.
+  [NPC Motion](../NpcMotion) and
+  [Anisotropic Filtering](../Anisotropic) add-ons.
 - Game version 1.004 should work too, since the add-on doesn't patch the game's executable, but
   it's untested.
 
