@@ -206,9 +206,15 @@ with VSync off, the game's own unlimited path. The frame limiter itself is NVIDI
 the 120 entry with a mid-function hook in `0x10BBA98`; its pattern still matches this executable once.
 
 No config file the game ships sets `t.MaxFPS` (the device profiles only set streaming, MassiveEnvironment, D3D12 and
-dynamic resolution variables), so `t.MaxFPS` under `[SystemSettings]` in the user's
-`Saved\Config\WindowsNoEditor\Engine.ini` (`ECVF_SetBySystemSettingsIni`, `0x04000000`) outranks the menu, which
-then cannot change it.
+dynamic resolution variables). In Unreal, `t.MaxFPS` under `[SystemSettings]` in the user's
+`Saved\Config\WindowsNoEditor\Engine.ini` (`ECVF_SetBySystemSettingsIni`, `0x04000000`) would outrank the menu, but
+this game does not apply it: with `t.MaxFPS=0` there before the start, the running game still had 119.88 set by
+`SetByScalability` (variable object read through slot `0x91D8550`: flags at +0x18, value at +0x48).
+
+In game (2026-10-31, menu at 120, the game's DLSS frame generation on, a light spot): PresentMon counted 128.6 frames
+shown per second, rendered frames (about 15.3 ms of GPU time each) alternating with generated ones (about 0.06 ms),
+so about 64 rendered fps (`captures/perf/2026-10-31-framecap`). The 119.88 limit does not count generated frames: with
+frame generation the 120 entry allows at least 240 shown frames, and the GPU is what limits it.
 
 ## Open
 
