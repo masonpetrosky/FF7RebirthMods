@@ -187,6 +187,29 @@ lookup of its heaps (two per copy), plus `concurrent_vector` capacity checks. Th
 every draw, so this runs thousands of times per frame on the thread that submits them. It costs no frames where the
 GPU is the limit; in CPU-bound places (Kalm, about 100 fps with the GPU at 83-90%) it may.
 
+## Frame-rate limit (2026-10-31)
+
+The options menu offers 30, 60, 90 and 120 fps (`$menu_options_fps_30` to `_120`); there is no unlimited entry. Its
+apply function (`0x10BB87C`, argument = menu mode: 1-4 with `r.VSync` on, 5-8 with it off, anything else = no limit,
+which the game uses itself while a flag at `0x8F32ADA` is set) writes three console variables through `0x10BBA98`
+(float to string, then `IConsoleVariable::Set`) with `ECVF_SetByScalability` (`0x01000000`), the lowest priority:
+
+- `t.MaxFPS` = option x 0.999 (constant at `0x5F0A5E0`), so the 120 entry limits to 119.88;
+- `r.DynamicRes.FrameTimeBudget` = 1000 / that (dynamic resolution is off, so it changes nothing);
+- `rhi.SyncInterval` = refresh rate / option while VSync is on and `r.FrameGeneration.Method` is 0, else 0.
+
+The `IConsoleVariable*` of these, of `r.VSync` and of `r.FrameGeneration.Method` are looked up once at startup
+(`0x3AF6CA2`-`0x3AF6DEC`, slots `0x91D8540`-`0x91D8560`). `0x10BC030` reads `t.MaxFPS` back and turns it into a menu
+mode; only the 30 fps mode changes other state (a few timing constants). A value that is none of the four gives mode 0
+with VSync off, the game's own unlimited path. The frame limiter itself is NVIDIA's Streamline handler
+(`FStreamlineMaxTickRateHandler`), which takes `t.MaxFPS`. Lyall's FF7RebirthFix (0.0.10, February 2025) replaces
+the 120 entry with a mid-function hook in `0x10BBA98`; its pattern still matches this executable once.
+
+No config file the game ships sets `t.MaxFPS` (the device profiles only set streaming, MassiveEnvironment, D3D12 and
+dynamic resolution variables), so `t.MaxFPS` under `[SystemSettings]` in the user's
+`Saved\Config\WindowsNoEditor\Engine.ini` (`ECVF_SetBySystemSettingsIni`, `0x04000000`) outranks the menu, which
+then cannot change it.
+
 ## Open
 
 1. A RenderDoc capture with the add-on active, run through `skin_frames.py`: the stale rows should be gone.
