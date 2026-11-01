@@ -40,7 +40,10 @@ The cost is small. In a town scene at 4K with DLSS Performance on an RTX 5070 Ti
 1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
    [reshade.me](https://reshade.me)). Point it at
    `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
-2. Download the latest `FF7RebirthAnisotropic-v*.zip` from [Releases](../../../releases) and extract it into the same
+2. Download the latest `FF7RebirthAnisotropic-v*.zip` from
+   [Nexus Mods](https://www.nexusmods.com/finalfantasy7rebirth/mods/2442) or
+   [Releases](https://github.com/masonpetrosky/FF7RebirthMods/releases) (0.1.0 is in the
+   [former repository](https://github.com/masonpetrosky/FF7RebirthAnisotropic/releases)) and extract it into the same
    `Win64` folder, so you end up with:
    ```
    Win64\FF7RebirthAnisotropic.addon64

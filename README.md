@@ -1,7 +1,9 @@
 # FF7 Rebirth mods
 
 Fixes and improvements for FINAL FANTASY VII REBIRTH (PC), one folder per mod. Each mod is downloaded and installed on
-its own: its zip is on its Nexus Mods page and on this repository's Releases page.
+its own: its zip is on its Nexus Mods page and on this repository's Releases page. Until 2026-10-31 each mod had its
+own repository; their releases up to then stay there (FF7RebirthVegetationAndHairFix, FF7RebirthNpcMotion,
+FF7RebirthAnisotropic, FF7RebirthTextureUpscaler, all archived).
 
 | Mod | What it does | Version | Nexus Mods |
 |---|---|---|---|

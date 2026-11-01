@@ -61,7 +61,10 @@ for the session; the ini sets what the game starts with.
 1. Install **ReShade 6.x with add-on support** (the "with full add-on support" download from
    [reshade.me](https://reshade.me)). Point it at
    `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64\ff7rebirth_.exe` and choose **DirectX 12**.
-2. Download the latest `FF7RebirthNpcMotion-v*.zip` from [Releases](../../../releases) and extract it into the same
+2. Download the latest `FF7RebirthNpcMotion-v*.zip` from
+   [Nexus Mods](https://www.nexusmods.com/finalfantasy7rebirth/mods/2441) or
+   [Releases](https://github.com/masonpetrosky/FF7RebirthMods/releases) (0.1.0 is in the
+   [former repository](https://github.com/masonpetrosky/FF7RebirthNpcMotion/releases)) and extract it into the same
    `Win64` folder, so you end up with:
    ```
    Win64\FF7RebirthNpcMotion.addon64
