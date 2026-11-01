@@ -13,7 +13,7 @@ them at once. Each mod still ships on its own (its own zip, Nexus page and relea
 | `ShaderInjectorSync/` | ReShade add-on: holds startup until Shader Injector has hooked D3D12 | `FF7RebirthShaderInjectorSync.addon64` + `.ini` |
 | `TextureUpscaler/` | Python: AI texture upscaling into a `~mods` IoStore package (its own `.venv`, `bin/`, `models/`, `work/`, all git-ignored) | `FF7RebirthTextureUpscaler_P.pak/.ucas/.utoc` in `Paks\~mods` |
 | `third_party/` | ReShade and Dear ImGui headers, DXIL hash (DXC); one copy for every add-on | |
-| `tools/` | Game-wide investigation scripts: `launch_rdc.ps1` (game under RenderDoc), `rdc.sh` + `rdc_*.py` (read captures), `disasm.py`, `xref*.py`, `callers.py`, `memread.py` (the exe), `decode_png16.ps1` + `shot_bands.py` (HDR screenshots) | |
+| `tools/` | Game-wide investigation scripts: `launch_rdc.ps1` (game under RenderDoc), `rdc.sh` + `rdc_*.py` (read captures), `disasm.py`, `xref*.py`, `callers.py`, `memread.py` (the exe), `decode_png16.ps1` + `shot_bands.py` (HDR screenshots), `perf_session.py` + `perf_report.py` (frame times at one spot with each mod switched off and on by its key), `cpu_sampler.cpp` + `cpu_profile.py` (where the game's CPU time goes, per thread and module), `gpu_timer.cpp` (development add-on: Shader Injector's passes timed on the GPU) | |
 | `captures/` | git-ignored: every RenderDoc capture of the game and what the tools dumped from them (e.g. the Kalm capture `ff7r_frame8775.rdc`) | |
 | `gamedata/` | git-ignored: the game's own config files, unpacked from its pak | |
 
@@ -43,7 +43,8 @@ relative to the repository root unless the doc says otherwise.
   `..\README.md`.
 - Next to our add-ons in Win64: ReShade 6.8 (`dxgi.dll`; since Shader Injector creates a dummy swap chain first, the
   game window reads `ReShade2.ini`, while add-on settings such as RenoDX's stay in `ReShade.ini`), RenoDX HDR
-  (`renodx-ff7rebirth.addon64`), Shader Injector (`dsound.dll`, `ShaderInjector\`), SCSKiller's recorder (`d3d12.dll`).
+  (`renodx-ff7rebirth.addon64`), Shader Injector (`dsound.dll`, `ShaderInjector\`). SCSKiller removed its recorder
+  (`d3d12.dll`) on 2026-10-30; its log is `AppData\Local\Programs\SCSKiller\data\app.log`.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, Insert/Delete = Shader Injector menu
   and toggle, F3 and F11 = the game (F11 toggles windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation
   and Hair Fix (set in the installed ini; the shipped ini has no keys). Check this list before adding a key.
@@ -53,6 +54,11 @@ relative to the repository root unless the doc says otherwise.
 - How the add-ons share the game: NPC Motion and Vegetation and Hair Fix each load their own `dxcompiler.dll`
   (NPC Motion also looks in the Vegetation and Hair Fix folder). Shader Injector hooks ReShade's D3D12 wrappers, and
   its dummy D3D12 device is the game's own on a one-GPU PC, so no extra device events reach the add-ons.
+- Performance: `tools/perf_session.py <out>` (game in front, party standing still) records PresentMon and toggles
+  each mod by its key; `.\build.ps1 cpu_sampler` first for its CPU profile. Results go to `captures\perf\`. Measured
+  2026-10-31 at a Grasslands spot (4K, DLSS Performance): GPU-bound at 63 fps; Shader Injector costs 1.7 ms of the
+  15.8 ms frame, soft edges 0.1 ms, the NPC Motion fix nothing, and the Vegetation and Hair Fix saves 0.3 ms (a cutout
+  draws faster than the dithering). NPC Motion's descriptor mirror takes 13% of the RHIThread (`NpcMotion/docs/recon.md`).
 - Shader Injector itself is frostbone25's project: our shader changes to it live in the separate clone
   `..\ShaderInjector` as one branch per upstream pull request, not here.
 

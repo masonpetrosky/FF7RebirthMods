@@ -175,6 +175,18 @@ the View buffer the draws bind) confirmed each value.
 - Result: `ExtraMipBias` defaults to 0, which leaves the game's code alone. `JitterPhases=32` and `DlssPreExposure=1`
   stay on: the guide asks for them and they showed no downside.
 
+## CPU cost (2026-10-31, Grasslands)
+
+`tools/perf_session.py` at an open-world spot (4K, DLSS Performance, every mod installed): the GPU held the frame
+(63 fps, GPU busy 99-100%), and switching the fix off and on with F7 changed nothing (within ±0.03 ms). The CPU
+sampler (`build/cpu_sampler.exe`, 15 s at 250 Hz) found the add-on's own code in 13% of the RHIThread's samples (that
+thread was busy 52% of the time), 2-4% on the task-graph threads, 4.4% of all sampled thread time. A rebuild of the
+installed commit (`c0283c9`, identical to the installed file but for 6 timestamp bytes) with a linker map puts the
+hottest offsets in the descriptor mirror: `Descriptors::OnCopyDescriptorTables` and the `concurrent_unordered_map`
+lookup of its heaps (two per copy), plus `concurrent_vector` capacity checks. The game copies descriptors for nearly
+every draw, so this runs thousands of times per frame on the thread that submits them. It costs no frames where the
+GPU is the limit; in CPU-bound places (Kalm, about 100 fps with the GPU at 83-90%) it may.
+
 ## Open
 
 1. A RenderDoc capture with the add-on active, run through `skin_frames.py`: the stale rows should be gone.
@@ -186,3 +198,5 @@ the View buffer the draws bind) confirmed each value.
    is negative.
 5. The pre-exposure for frames without a character draw (the latest value read, since 2026-10-15): check in game that
    the counter in the overlay's DLSS hooks line grows only in such frames and nothing flickers.
+6. The descriptor mirror's CPU cost (see "CPU cost"): cache the last heaps looked up instead of two concurrent-map
+   finds per copy, and check the gain with `tools/perf_session.py` in a CPU-bound place.
