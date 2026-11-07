@@ -43,5 +43,8 @@ void SetConsoleVariables(const int32_t* temporal_aa_samples, const int32_t* temp
 void SetPassPreExposure(bool pass);
 bool pass_pre_exposure();
 std::string Status();
+// The DLSS mode and sizes of the game's latest evaluations, e.g. "Balanced: render 2259x1271 -> 3840x2160 (feature
+// created for 2227x1253)".
+std::string Mode();
 
 }  // namespace npcmotion::dlss_probe

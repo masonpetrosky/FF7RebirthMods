@@ -76,6 +76,11 @@ std::atomic<uint64_t> g_view_failures[static_cast<int>(ViewFailure::kCount)];
 std::mutex g_history_mutex;
 std::vector<std::pair<int, int>> g_history;
 
+// What the game's DLSS calls used, for the overlay: sizes packed as width << 16 | height, the quality mode
+// (NVSDK_NGX_PerfQuality_Value) of the evaluation's parameters and of the latest creation the hooks saw.
+std::atomic<uint32_t> g_mode_render{0}, g_mode_created{0}, g_mode_output{0};
+std::atomic<int> g_mode_quality{-1}, g_created_quality{-1};
+
 void Write(const char* text) {
   if (!g_logging) return;
   std::lock_guard lock(g_log_mutex);
@@ -121,6 +126,10 @@ std::string CreateFlags(long long flags) {
   return out.empty() ? "none" : out;
 }
 
+uint32_t PackSize(long long w, long long h) {
+  return w > 0 && h > 0 && w < 65536 && h < 65536 ? static_cast<uint32_t>(w << 16 | h) : 0;
+}
+
 std::string Presets(const NgxParameter* p) {
   char buf[200];
   snprintf(buf, sizeof(buf), "preset hints dlaa=%lld q=%lld b=%lld p=%lld up=%lld uq=%lld",
@@ -132,6 +141,7 @@ std::string Presets(const NgxParameter* p) {
 
 int CreateFeatureHook(ID3D12GraphicsCommandList* list, int feature, NgxParameter* p, void** handle) {
   const int result = g_create(list, feature, p, handle);
+  if (result == kNgxSuccess) g_created_quality = static_cast<int>(GetI(p, "PerfQualityValue"));
   char line[1024];
   snprintf(line, sizeof(line),
            "create feature=%d result=0x%X handle=%p frame=%llu render=%lldx%lld out=%lldx%lld quality=%lld "
@@ -147,6 +157,14 @@ int CreateFeatureHook(ID3D12GraphicsCommandList* list, int feature, NgxParameter
 int EvaluateFeatureHook(ID3D12GraphicsCommandList* list, const void* handle, const NgxParameter* p, void* callback) {
   const uint64_t n = ++g_evaluations;
   const uint64_t frame = g_frame.load();
+  // The parameter block keeps the creation's values (size, mode) next to the evaluation's: sampled for the overlay.
+  if (n % 30 == 1) {
+    g_mode_render = PackSize(GetU(p, "DLSS.Render.Subrect.Dimensions.Width"),
+                             GetU(p, "DLSS.Render.Subrect.Dimensions.Height"));
+    g_mode_created = PackSize(GetU(p, "Width"), GetU(p, "Height"));
+    g_mode_output = PackSize(GetU(p, "OutWidth"), GetU(p, "OutHeight"));
+    g_mode_quality = static_cast<int>(GetI(p, "PerfQualityValue"));
+  }
   ViewValues view;
   bool view_now = false;
   {
@@ -341,6 +359,19 @@ std::string Status() {
            static_cast<unsigned long long>(g_pre_exposure_passed.load()),
            static_cast<unsigned long long>(g_pre_exposure_earlier.load()));
   return g_status + extra;
+}
+
+std::string Mode() {
+  const uint32_t render = g_mode_render, created = g_mode_created, output = g_mode_output;
+  if (render == 0) return "no DLSS evaluation seen yet";
+  static const char* kNames[] = {"Performance", "Balanced", "Quality", "Ultra Performance", "Ultra Quality", "DLAA"};
+  int quality = g_mode_quality;
+  if (quality < 0 || quality > 5) quality = g_created_quality;
+  const char* name = quality >= 0 && quality <= 5 ? kNames[quality] : "mode not readable";
+  char text[200];
+  snprintf(text, sizeof(text), "%s: render %ux%u -> %ux%u (feature created for %ux%u)", name, render >> 16,
+           render & 0xFFFF, output >> 16, output & 0xFFFF, created >> 16, created & 0xFFFF);
+  return text;
 }
 
 }  // namespace npcmotion::dlss_probe

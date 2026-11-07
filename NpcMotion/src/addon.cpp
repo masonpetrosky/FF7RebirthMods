@@ -923,6 +923,9 @@ void OnOverlay(effect_runtime*) {
     ImGui::SetItemTooltip("The game tells DLSS 1 although Unreal scales the scene colour by View.PreExposure.\n"
                           "NVIDIA's DLSS guide: a pre-exposure must be passed at every evaluation.");
     if (g_pre_exposure_key != 0) ImGui::Text("Pre-exposure toggle key: virtual-key %d", g_pre_exposure_key);
+    ImGui::Text("DLSS: %s", npcmotion::dlss_probe::Mode().c_str());
+    ImGui::SetItemTooltip("The mode is NVIDIA's quality mode the game created DLSS with; the game picks it from the\n"
+                          "render scale (from 0.58 Balanced, from 0.66 Quality).");
     ImGui::Text("DLSS hooks: %s", npcmotion::dlss_probe::Status().c_str());
     if (npcmotion::dlss_probe::logging() && ImGui::Button("Log the next 120 DLSS evaluations"))
       npcmotion::dlss_probe::Arm(120);

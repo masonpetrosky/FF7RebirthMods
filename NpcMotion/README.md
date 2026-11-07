@@ -45,7 +45,8 @@ Programming Guide (31 March 2026) at 4K output in Performance mode (render 1920x
   creates DLSS for); outside the game, DLSS 310.9.1 gave the same output for that frame whether created for 2227x1253
   or 2259x1271 (presets K, L and M), as it does for the game's own 100% on a Quality feature
   (`NpcMotion/tools/dlss_subrect_check.cpp`). If you remove the add-on while 58% is selected, the game keeps rendering
-  at 58% until you choose another value.
+  at 58% until you choose another value. The overlay shows the mode and sizes DLSS runs with (with `DlssPreExposure`
+  or `DlssProbe` on), e.g. "Balanced: render 2259x1271 -> 3840x2160".
 - **Jitter** (`JitterPhases`): the game keeps Unreal's 8 jitter positions at every render scale; the guide asks for at
   least 32 in Performance mode. The add-on raises `r.TemporalAASamples` to 32.
 - **Pre-exposure** (`DlssPreExposure`): the engine pre-exposes the scene colour, but the game tells DLSS the
