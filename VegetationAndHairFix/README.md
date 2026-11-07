@@ -72,9 +72,10 @@ no light to borrow and is left out, as with a cutout.
    You don't need to pick any effect shaders.
 2. Download the latest `FF7RebirthVegetationAndHairFix-v*.zip` from
    [Nexus Mods](https://www.nexusmods.com/finalfantasy7rebirth/mods/2443) or
-   [Releases](https://github.com/masonpetrosky/FF7RebirthMods/releases) (0.3.0 and older are in the
+   [Releases](https://github.com/masonpetrosky/FF7RebirthMods/releases) (older versions are in the
    [former repository](https://github.com/masonpetrosky/FF7RebirthVegetationAndHairFix/releases)) and extract it
-   into the same `Win64` folder, so you end up with:
+   into the same `Win64` folder, so you end up with the files below. The zip's ini replaces yours: when updating,
+   keep a copy of your ini if you changed it.
    ```
    Win64\ff7rebirth_.exe
    Win64\dxgi.dll                                   (ReShade)
