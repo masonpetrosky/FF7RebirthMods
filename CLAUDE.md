@@ -33,9 +33,9 @@ relative to the repository root unless the doc says otherwise.
   tag `<Mod>-v<version>` and push the tag; CI builds the zip and creates the GitHub release. Nexus uploads are
   separate and need the user's OK per action. The Nexus pages' "GitHub" download mirror points at the mod's release
   here (`releases/tag/<Mod>-v<version>`; `releases/latest` would be whichever mod released last), for all three
-  add-ons since 2026-11-07: NPC Motion 0.2.0, and Anisotropic 0.1.0 and Vegetation and Hair Fix 0.3.0, published here
-  that day with the same zips as their former repositories' releases (not marked latest). Move the mirror at every
-  release.
+  add-ons since 2026-11-07: NPC Motion 0.2.0, Vegetation and Hair Fix 0.3.1 and Anisotropic 0.1.0 (published here
+  that day with the same zip as its former repository's release, not marked latest; Vegetation and Hair Fix 0.3.0
+  likewise). Move the mirror at every release.
 
 ## Working on the game
 
