@@ -31,9 +31,10 @@ relative to the repository root unless the doc says otherwise.
   add-ons that use `dxcompiler.dll` get the pinned DXC release).
 - Releasing a mod: bump `project(... VERSION)` in its `CMakeLists.txt`, rewrite its `docs/release-notes.md`, commit,
   tag `<Mod>-v<version>` and push the tag; CI builds the zip and creates the GitHub release. Nexus uploads are
-  separate and need the user's OK per action. Each add-on's Nexus page still has a "GitHub" download mirror pointing at
-  its former repository's latest release (archived 2026-10-31); with that mod's first release from here, point the
-  mirror at the new release (`releases/tag/<Mod>-v<version>`).
+  separate and need the user's OK per action. The Nexus pages' "GitHub" download mirror points at the mod's release
+  here (`releases/tag/<Mod>-v<version>`; `releases/latest` would be whichever mod released last): NPC Motion's since
+  0.2.0 (2026-11-07); Anisotropic's and the Vegetation and Hair Fix's still point at their former repository's latest
+  release (archived 2026-10-31) until their first release from here. Move the mirror at every release.
 
 ## Working on the game
 
