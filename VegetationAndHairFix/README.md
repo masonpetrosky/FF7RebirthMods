@@ -109,7 +109,7 @@ original shaders instantly, for comparison.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Opacity threshold | 0.33 | Pixels more opaque than this are drawn. Lower = fuller leaves with chunkier edges, higher = finer but thinner and more see-through. |
+| Opacity threshold | 0.40 | Pixels more opaque than this are drawn. Lower = fuller leaves with chunkier edges, higher = finer but thinner and more see-through. |
 | Dither strength | 0.00 | 0 = clean alpha test. Values around 0.2–0.3 bring back a little softness at the edges. 1 = the game's original dithering. |
 | Game's dithering | | Sets threshold 0.50 and dither strength 1.00, the game's own test. Its shaders are then left alone. |
 
@@ -118,9 +118,9 @@ original shaders instantly, for comparison.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Soft edges | on | Solid part drawn cleanly, thin parts blended over the scene. Off = the scenery-style settings below. |
-| Solid above | 0.50 | Parts more opaque than this are drawn solid; the rest is blended in. Lower = fuller, more solid hair. |
+| Solid above | 0.40 | Parts more opaque than this are drawn solid; the rest is blended in. Lower = fuller, more solid hair. |
 | Edge softness | 0.70 | How much of the thin part is blended in, as a share of the threshold (the blend fades in from threshold × (1 − softness)). Higher = wispier edges, lower = closer to a clean cutout. |
-| Opacity threshold, Dither strength | 0.50, 1.00 | With soft edges off: as for scenery (0.50 / 1.00 is the game's own dithering). |
+| Opacity threshold, Dither strength | 0.40, 1.00 | With soft edges off: as for scenery (0.50 / 1.00 is the game's own dithering). |
 
 In the ini, the scenery settings are `SceneryThreshold` and `SceneryDitherStrength`; the character
 settings are `SoftEdges`, `Threshold`, `SoftEdgeSoftness` and (soft edges off) `DitherStrength`.

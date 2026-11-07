@@ -57,9 +57,9 @@ enum Group { kCharacters, kScenery, kGroupCount };
 constexpr const char* kGroupNames[kGroupCount] = {"character", "scenery"};
 constexpr const char* kThresholdKeys[kGroupCount] = {"Threshold", "SceneryThreshold"};
 constexpr const char* kDitherKeys[kGroupCount] = {"DitherStrength", "SceneryDitherStrength"};
-// By default characters keep the game's own dithering, which DLSS preset L resolved well on hair in
-// our tests, and scenery gets a clean alpha test.
-constexpr vegfix::PatchOptions kDefaults[kGroupCount] = {{0.5f, 1.0f}, {0.33f, 0.0f}};
+// Threshold 0.40 for both by default (the user's pick from play, 2026-11-07): with soft edges, character parts more
+// opaque than that are drawn solid; scenery gets a clean alpha test. With soft edges off, characters keep dithering.
+constexpr vegfix::PatchOptions kDefaults[kGroupCount] = {{0.4f, 1.0f}, {0.4f, 0.0f}};
 
 constexpr const wchar_t* kIniSection = L"VegetationAndHairFix";
 
