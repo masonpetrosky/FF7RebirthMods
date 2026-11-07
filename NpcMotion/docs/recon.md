@@ -216,6 +216,55 @@ shown per second, rendered frames (about 15.3 ms of GPU time each) alternating w
 so about 64 rendered fps (`captures/perf/2026-10-31-framecap`). The 119.88 limit does not count generated frames: with
 frame generation the 120 entry allows at least 240 shown frames, and the GPU is what limits it.
 
+## Dynamic resolution limits and DLSS Balanced (2026-11-07)
+
+Question (the user): can the game get DLSS Balanced? It has no DLSS quality setting. The graphics options set the
+render scale only through the dynamic resolution lower and upper limits (`$menu_options_graphic_dynamic_resolution_limit`
+and `..._upper_limit`; both at one value give a fixed scale), and both lists offer 33, 50, 66 and 100%.
+
+- **Applying a choice**: `0x10BB5FC` (anti-aliasing mode, lower, upper) looks both values up in a table of six
+  20-byte entries at `0x5BD4560` (value; percentage; cap on the upper limit; the two as fractions): 100, 75, 66
+  (66.667), 58 (58.824 = 1/1.7), 50 and 33 (33.333), all with cap 100. A value not in the table is used as the
+  percentage itself. Upper = min(its entry's percentage, the lower entry's cap), then at least the lower. Mode 2 uses a
+  copy at `0x5BD45E0` (only while the flag at `0x91D85D9` is set) whose 33 entry caps the upper limit at 33.3: that is
+  DLSS, whose Ultra Performance takes only its exact size (below). The setters (`0x10BB790` lower, `0x10BB724` upper)
+  clamp to 0..100 and set `r.DynamicRes.MinScreenPercentage` / `MaxScreenPercentage` with `ECVF_SetByCode`
+  (`0x08000000`), above the device profile's 75/100 (`WindowsDeviceProfiles.ini`, with `r.DynamicRes.OperationMode=2`).
+  Callers: the options menu (`0x10B9C38`, the same code again in `0xFE4C80`; option 0x45 = lower limit, 0x4E = upper,
+  each moving the other along if needed) and the startup apply (`0x3AE08EA`), from the settings bytes +0x372 (lower),
+  +0x37A (upper) and +0x375 (anti-aliasing mode). The menu stores the value (`mov [rbx+0x372], dil`), not its place
+  in the list, and finds the place again by value (`0x159A4BC`, `0x159A4F0`; graphics presets do the same), so a
+  longer list leaves saved settings alone.
+- **The menu's lists**: the options menu builder (`0x159D394`, 64 KB) fills the lower-limit array (+0x5D0) from
+  `0x5B87098`..`0x5B870A8` and the upper one (+0x5E0) from `0x5B87088`..`0x5B87098`, two constant lists {33, 50, 66,
+  100}, with a label per value (`..._select_format`). Each loop's bounds are RIP-relative loads: `lea r14, [begin]` at
+  `0x15A4FAD` (lower) and `0x15A53EF` (upper); `lea rax, [end]; add r14, 4; cmp r14, rax` at `0x15A50FA` and
+  `0x15A553C`. Nothing else reads the lists (`0x15A8955` loads the byte list stored right after them). So 58 and 75
+  are in the apply table but in no menu list.
+- **DLSS quality mode**: the DLSS pass (`0x134479C`) picks NGX's mode from the render scale: >= 0.66 Quality (2),
+  >= 0.58 Balanced (1), >= 0.5 Performance (0), >= 0.33 Ultra Performance (3), else Balanced. The evaluation
+  (`0x1343AB8`) recreates the feature when the output size, the mode or the preset changes, asks NGX for that mode's
+  optimal settings and creates the feature for the optimal render size (`0x2690B7C`, creation flags 0x4B). So the
+  game's 100% runs a Quality feature created for 2560x1440 (at 4K) with 3840x2160 frames, its 58.8% would run a
+  Balanced one created for 2227x1253 with 2259x1271 frames, and dynamic resolution between its own 50 and 66% already
+  passes through Balanced.
+- **Offline check** (`NpcMotion/tools/dlss_subrect_check.cpp`; DLSS 310.9.1, RTX 5070 Ti, 4K output, the game's creation flags; a
+  still synthetic scene with sharp edges rendered with jitter at the input size, 64 frames, error against the scene
+  supersampled at 4K): NGX's optimal sizes at 4K are Ultra Performance 1280x720 (fixed), Performance 1920x1080,
+  Balanced 2227x1253 (0.5799), Quality 2560x1440, DLAA 3840x2160 (3802x2138..3840x2160); Performance, Balanced and
+  Quality take any input from 1920x1080 to 3840x2160. 2259x1271 frames on a feature created for 2227x1253 gave exactly
+  the error of a feature created for 2259x1271 (preset K 0.00608, L 0.01686, M 0.01557, the same at the right and
+  bottom edges, where a cropped or rescaled read would show), and 3840x2160 frames on a Quality feature created for
+  2560x1440 exactly that of one created for 3840x2160 (K 0.00351). Every creation and evaluation succeeded. Within a
+  mode's range the creation size does not change the output.
+- **The add-on** (`BalancedStep=1`, `src/resolution_menu.hpp`): at startup it finds the lists (once in `.rdata`) and
+  the four loads (each once, the end after its begin), writes {33, 50, 58, 66, 100} into memory within 2 GB of the
+  code and points all four loads at it; ReShade's unload puts the displacements back. `build/NpcMotion/resolution_menu_test.exe` runs
+  the same search on the installed executable: the original loops read 33, 50, 66, 100, the redirected ones 33, 50,
+  58, 66, 100, on the file and on the image mapped in memory (list 22 MB below the code; search 78 ms).
+- Not yet seen in game: 58% in both lists and its label, the render size, and the probe's `create` line (expected
+  quality=1, render=2227x1253, then `render_subrect=2259x1271`).
+
 ## Open
 
 1. A RenderDoc capture with the add-on active, run through `skin_frames.py`: the stale rows should be gone.
@@ -229,3 +278,4 @@ frame generation the 120 entry allows at least 240 shown frames, and the GPU is 
    the counter in the overlay's DLSS hooks line grows only in such frames and nothing flickers.
 6. The descriptor mirror's CPU cost (see "CPU cost"): cache the last heaps looked up instead of two concurrent-map
    finds per copy, and check the gain with `tools/perf_session.py` in a CPU-bound place.
+7. `BalancedStep` in game (see "Dynamic resolution limits"): the menu entries, the render size and the DLSS mode.

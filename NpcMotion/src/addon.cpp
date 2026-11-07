@@ -40,6 +40,7 @@
 
 #include "descriptors.hpp"
 #include "dlss_probe.hpp"
+#include "resolution_menu.hpp"
 #include "shader_reflection.hpp"
 #include "texture_bias_code.hpp"
 
@@ -89,6 +90,9 @@ float* g_bias_value = nullptr;   // {extra bias, 0, 0, 0}, read by the redirecte
 int g_interpolated_characters = -1;
 std::string g_budget_status = "the game's";
 int g_pre_exposure_key = 0;
+// 1 = add 58% (Balanced) to the graphics options' dynamic resolution limits (resolution_menu.hpp).
+bool g_balanced_step = true;
+std::string g_menu_status = "the game's: 33, 50, 66, 100%";
 
 // Values changed in the game's memory and what they held before, written back when ReShade unloads the add-on. The
 // game creates a D3D12 device at startup only to destroy it again, so the add-on is loaded twice, and the second load
@@ -460,12 +464,93 @@ void ApplyMipBias() {
   SetMipBias(true);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Dynamic resolution limits: 58% (Balanced) in the graphics options (resolution_menu.hpp)
+
+namespace menu = npcmotion::resolution_menu;
+uint8_t* g_menu_sites[4] = {};  // the four loads of the lists' bounds, redirected to the add-on's list
+int32_t g_menu_original[4] = {};
+
+// At startup, before the menu exists (no thread is in the loops while they are changed).
+bool AddBalancedStep(std::string* error) {
+  const Image& image = GameImage();
+  uintptr_t lists = 0;
+  if (!menu::FindLists(image.rdata, image.rdata_size, reinterpret_cast<uintptr_t>(image.rdata), &lists)) {
+    *error = "the menu's lists of limits were not found";
+    return false;
+  }
+  menu::Sites found;
+  if (!menu::FindSites(image.text, image.text_size, reinterpret_cast<uintptr_t>(image.text), lists, &found)) {
+    *error = "the menu code that copies the limits was not found";
+    return false;
+  }
+  uint8_t* const sites[4] = {image.text + found.upper_begin, image.text + found.upper_end,
+                             image.text + found.lower_begin, image.text + found.lower_end};
+  // The add-on's list. Never freed, like the bias routine: if the loads could not be put back at unload, the menu,
+  // which copies the list whenever it opens, still reads it.
+  auto* const steps = static_cast<uint8_t*>(menu::AllocateNear(sites[0], sizeof(menu::kSteps)));
+  if (steps == nullptr) {
+    *error = "no memory within reach of the menu code";
+    return false;
+  }
+  memcpy(steps, menu::kSteps, sizeof(menu::kSteps));
+  DWORD old;
+  VirtualProtect(steps, sizeof(menu::kSteps), PAGE_READONLY, &old);
+  const uintptr_t begin = reinterpret_cast<uintptr_t>(steps), end = begin + sizeof(menu::kSteps);
+  const uintptr_t targets[4] = {begin, end, begin, end};
+  int32_t disp[4];
+  for (int i = 0; i < 4; ++i) {
+    if (!menu::Displacement(reinterpret_cast<uintptr_t>(sites[i]), targets[i], &disp[i])) {
+      *error = "the add-on's list is out of reach of the menu code";
+      return false;
+    }
+  }
+  for (int i = 0; i < 4; ++i) {
+    memcpy(&g_menu_original[i], sites[i] + 3, 4);
+    if (!WriteCode(sites[i] + 3, reinterpret_cast<const uint8_t*>(&disp[i]), 4)) {
+      for (int k = 0; k < i; ++k) WriteCode(sites[k] + 3, reinterpret_cast<const uint8_t*>(&g_menu_original[k]), 4);
+      *error = "the menu code could not be changed";
+      return false;
+    }
+    g_menu_sites[i] = sites[i];
+  }
+  char line[200];
+  snprintf(line, sizeof(line), "Dynamic resolution limits: 58%% added (menu loads at +0x%zX, +0x%zX, +0x%zX, +0x%zX).",
+           static_cast<size_t>(sites[0] - reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr))),
+           static_cast<size_t>(sites[1] - reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr))),
+           static_cast<size_t>(sites[2] - reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr))),
+           static_cast<size_t>(sites[3] - reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr))));
+  Log(reshade::log::level::info, line);
+  return true;
+}
+
+void RestoreMenuSteps() {
+  for (int i = 0; i < 4; ++i) {
+    if (g_menu_sites[i] == nullptr) continue;
+    WriteCode(g_menu_sites[i] + 3, reinterpret_cast<const uint8_t*>(&g_menu_original[i]), 4);
+    g_menu_sites[i] = nullptr;
+  }
+}
+
+void ApplyBalancedStep() {
+  if (!g_balanced_step) return;
+  std::string error;
+  if (AddBalancedStep(&error)) {
+    g_menu_status = "33, 50, 58, 66, 100% (58% = Balanced)";
+  } else {
+    g_menu_status = "the game's (" + error + ")";
+    Log(reshade::log::level::warning, "Dynamic resolution limits: " + error + " (another game version?); the menu keeps "
+                                      "the game's 33, 50, 66 and 100%.");
+  }
+}
+
 void OnInitDevice(device*) {
   static std::once_flag once;
   std::call_once(once, [] {
     ApplyAnimationBudget();
     ApplyJitter();
     ApplyMipBias();
+    ApplyBalancedStep();
   });
 }
 
@@ -801,6 +886,9 @@ void OnOverlay(effect_runtime*) {
   }
   ImGui::Text("Skinned pipelines with previous bones: %zu", pipelines);
   ImGui::Text("Animation budget: %s (AnimationBudget in the ini, applies at the next start)", g_budget_status.c_str());
+  ImGui::Text("Dynamic resolution limits in the graphics options: %s", g_menu_status.c_str());
+  ImGui::SetItemTooltip("BalancedStep in the ini adds 58%% at startup. Setting both limits to 58%% gives DLSS Balanced\n"
+                        "(1/1.7 of the output size per axis).");
   if (!g_reflection.initialized()) ImGui::Text("Not working: %s", g_reflection_error.c_str());
   if (g_jitter_phases > 0 && g_taa_samples != nullptr) {
     bool on = g_jitter_on;
@@ -858,6 +946,7 @@ void Initialize(HMODULE module) {
   g_pre_exposure_key = ReadIniInt(L"PreExposureKey", 0);
   g_extra_mip_bias = ReadIniFloat(L"ExtraMipBias", NAN);
   g_mip_bias_key = ReadIniInt(L"MipBiasKey", 0);
+  g_balanced_step = ReadIniInt(L"BalancedStep", 1) != 0;
   const bool probe = ReadIniInt(L"DlssProbe", 0) != 0;
   const bool pre_exposure = ReadIniInt(L"DlssPreExposure", 0) != 0;
   if (probe || pre_exposure) {
@@ -906,6 +995,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       if (reserved == nullptr) {
         npcmotion::dlss_probe::Shutdown();
         RestoreBiasStores();
+        RestoreMenuSteps();
         RestoreGameValues();
       }
       break;

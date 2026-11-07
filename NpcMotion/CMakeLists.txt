@@ -21,6 +21,10 @@ add_executable(reflect_test tests/reflect_test.cpp src/shader_reflection.cpp)
 target_include_directories(reflect_test PRIVATE src)
 target_link_libraries(reflect_test PRIVATE dxguid)
 
+# Finds the dynamic resolution menu code in the game's executable and checks the redirected loops' values.
+add_executable(resolution_menu_test tests/resolution_menu_test.cpp)
+target_include_directories(resolution_menu_test PRIVATE src)
+
 # Runs the texture bias routine the way the game enters it.
 enable_language(ASM_MASM)
 add_executable(bias_routine_test tests/bias_routine_test.cpp tests/bias_routine_test.asm)

@@ -4,7 +4,8 @@ A [ReShade](https://reshade.me) add-on for **FINAL FANTASY VII REBIRTH** (PC) th
 townspeople and other characters whose animation the game throttles, so DLSS (and the game's TAA and motion blur)
 no longer smears their outlines, and lets the game's animation budget interpolate them so they move every frame. It
 also sets the DLSS jitter sequence and pre-exposure the way NVIDIA's DLSS Programming Guide asks (the guide's extra
-texture mip bias is available but off by default; see [DLSS](#dlss)).
+texture mip bias is available but off by default) and adds DLSS **Balanced** (58%) to the game's resolution options;
+see [DLSS](#dlss).
 
 ## The problem
 
@@ -35,6 +36,16 @@ characters' history from the wrong place. (UE 4.27 added the missing check.)
 Rebirth runs DLSS super resolution through Square Enix's own NGX integration. Checked against NVIDIA's DLSS
 Programming Guide (31 March 2026) at 4K output in Performance mode (render 1920x1080):
 
+- **Balanced mode** (`BalancedStep`, from the next release): the game has no DLSS quality setting; it sets the render
+  scale with the graphics options' dynamic resolution lower and upper limits, which offer 33, 50, 66 and 100% (both
+  limits at one value give a fixed scale: Ultra Performance, Performance, Quality, native resolution). The game's own
+  code already knows 58.8% (1/1.7) and runs DLSS in its Balanced mode for a render scale from 0.58 to 0.66; only the
+  menu leaves it out. The add-on adds 58% to both lists, so the game offers, saves and applies it like its own values.
+  At 4K both limits at 58% render 2259x1271, a little more than NVIDIA's Balanced size (2227x1253, which the game
+  creates DLSS for); outside the game, DLSS 310.9.1 gave the same output for that frame whether created for 2227x1253
+  or 2259x1271 (presets K, L and M), as it does for the game's own 100% on a Quality feature
+  (`NpcMotion/tools/dlss_subrect_check.cpp`). If you remove the add-on while 58% is selected, the game keeps rendering
+  at 58% until you choose another value.
 - **Jitter** (`JitterPhases`): the game keeps Unreal's 8 jitter positions at every render scale; the guide asks for at
   least 32 in Performance mode. The add-on raises `r.TemporalAASamples` to 32.
 - **Pre-exposure** (`DlssPreExposure`): the engine pre-exposes the scene colour, but the game tells DLSS the
@@ -93,6 +104,7 @@ window is in front and neither Alt nor Ctrl is held.
 | `InterpolatedCharacters` | 64 | Characters the animation budget may interpolate; -1 = the game's value (0). Startup. |
 | `AnimationBudget` | 1 | 0 = switch the game's animation budget off at startup (expensive, see above). |
 | `LogStats` | 0 | 1 = write counters and the frame rate to `ReShade.log` every 600 frames. |
+| `BalancedStep` | 1 | Add 58% (DLSS Balanced) to the dynamic resolution limits in the graphics options; 0 = the game's 33, 50, 66 and 100%. Startup. |
 | `JitterPhases` | 32 | Jitter positions per sequence for DLSS; 0 = the game's 8. `JitterKey` (116, F5) switches between the two for the session. |
 | `DlssPreExposure` | 1 | Pass the engine's pre-exposure to DLSS. `PreExposureKey` (115, F4) switches it for the session. 0 with `DlssProbe=0` leaves the game's DLSS calls alone. |
 | `ExtraMipBias` | 0 | Extra texture mip bias on top of the game's; 0 = leave the game's code alone. A non-zero value patches the game's bias at startup; `MipBiasKey` (35, End) switches it for the session, and the overlay's slider changes and saves it. |
@@ -102,8 +114,9 @@ window is in front and neither Alt nor Ctrl is held.
 
 Visual Studio 2022 or newer with the C++ x64 tools. In the repository root, `.\build.ps1` builds every add-on; this
 one's files are `build\NpcMotion\FF7RebirthNpcMotion.addon64`, `build\NpcMotion\reflect_test.exe` (checks the bone
-register lookup on shaders saved from a capture) and `build\NpcMotion\bias_routine_test.exe` (runs the texture bias
-routine the way the game enters it). `.\package.ps1 NpcMotion` also assembles the release zip in `dist\`, with
+register lookup on shaders saved from a capture), `build\NpcMotion\bias_routine_test.exe` (runs the texture bias
+routine the way the game enters it) and `build\NpcMotion\resolution_menu_test.exe` (finds the resolution menu code in
+the installed `ff7rebirth_.exe`, or the one given, and checks the values the changed loops read). `.\package.ps1 NpcMotion` also assembles the release zip in `dist\`, with
 `dxcompiler.dll` from a pinned DirectX Shader Compiler release; pushing a `NpcMotion-v*` tag builds and publishes it on
 GitHub.
 
