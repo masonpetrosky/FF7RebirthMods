@@ -36,7 +36,7 @@ characters' history from the wrong place. (UE 4.27 added the missing check.)
 Rebirth runs DLSS super resolution through Square Enix's own NGX integration. Checked against NVIDIA's DLSS
 Programming Guide (31 March 2026) at 4K output in Performance mode (render 1920x1080):
 
-- **Balanced mode** (`BalancedStep`, from the next release): the game has no DLSS quality setting; it sets the render
+- **Balanced mode** (`BalancedStep`, since 0.2.0): the game has no DLSS quality setting; it sets the render
   scale with the graphics options' dynamic resolution lower and upper limits, which offer 33, 50, 66 and 100% (both
   limits at one value give a fixed scale: Ultra Performance, Performance, Quality, native resolution). The game's own
   code already knows 58.8% (1/1.7) and runs DLSS in its Balanced mode for a render scale from 0.58 to 0.66; only the
@@ -77,7 +77,8 @@ for the session; the ini sets what the game starts with.
    [Nexus Mods](https://www.nexusmods.com/finalfantasy7rebirth/mods/2441) or
    [Releases](https://github.com/masonpetrosky/FF7RebirthMods/releases) (0.1.0 is in the
    [former repository](https://github.com/masonpetrosky/FF7RebirthNpcMotion/releases)) and extract it into the same
-   `Win64` folder, so you end up with:
+   `Win64` folder, so you end up with the files below. The zip's ini replaces yours: when updating, keep a copy of your
+   ini if you changed it.
    ```
    Win64\FF7RebirthNpcMotion.addon64
    Win64\FF7RebirthNpcMotion.ini
@@ -85,8 +86,8 @@ for the session; the ini sets what the game starts with.
    ```
    The add-on reads shader names with Microsoft's `dxcompiler.dll`. With the
    [FF7 Rebirth Vegetation and Hair Fix](../VegetationAndHairFix) installed, its
-   `FF7RebirthVegetationAndHairFix\dxcompiler.dll` works too (from the next NPC Motion release; 0.1.0 finds it only
-   under the add-on's earlier names, `FF7RebirthVegetationFix` and `FF7RebirthHairFix`).
+   `FF7RebirthVegetationAndHairFix\dxcompiler.dll` works too (since 0.2.0; 0.1.0 finds it only under the add-on's
+   earlier names, `FF7RebirthVegetationFix` and `FF7RebirthHairFix`).
 
 Tested with game build 23447986 (Steam, October 2026) and ReShade 6.8.0 on an RTX 5070 Ti, alongside the
 Vegetation and Hair Fix, [FF7 Rebirth Anisotropic Filtering](../Anisotropic) and
