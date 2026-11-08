@@ -3,8 +3,9 @@
 Start it with the game in front, the party standing still at the spot to test and hands off the controls. It records
 PresentMon (frame time, GPU busy, CPU busy) for the whole run and nvidia-smi once a second, and switches the mods that
 have a hotkey off and on in turn, each for S seconds (A/B/A, N rounds):
-  Delete  Shader Injector              F7  NPC Motion's motion-vector fix
-  F8      Vegetation and Hair Fix      F6  its soft edges
+  F7  NPC Motion's motion-vector fix   F8  Vegetation and Hair Fix   F6  its soft edges
+(Switch 1, Shader Injector on Delete, stays in the list so the numbers keep their meaning, but the game no longer has
+it: removed 2026-11-08.)
 Then it samples the game's busiest CPU threads for --profile seconds with build/cpu_sampler.exe. At the start it takes
 a ReShade screenshot (M6, Page Down) of the measured view.
 
@@ -34,7 +35,7 @@ SESSION = "FF7RebirthModsPerf"
 
 # label, virtual key, extended key (for the scan code)
 SWITCHES = [
-    ("Shader Injector", 0x2E, True),           # Delete
+    ("Shader Injector", 0x2E, True),           # Delete; removed from the game 2026-11-08, not in the default run
     ("NPC Motion fix", 0x76, False),           # F7
     ("Vegetation and Hair Fix", 0x77, False),  # F8
     ("soft edges", 0x75, False),               # F6
@@ -42,7 +43,7 @@ SWITCHES = [
     # its "off" segments are Ray Reconstruction's. Not in the default run: --only 5.
     ("NPC Motion's Ray Reconstruction (switched on)", 0x7C, False),  # F13
 ]
-DEFAULT_SWITCHES = 4  # the first four: the mods' own switches
+DEFAULT_SWITCHES = (2, 3, 4)  # switch numbers of the default run: the installed mods' own switches
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -113,7 +114,8 @@ def main():
     parser.add_argument("--segment", type=float, default=10.0, help="seconds per state (default 10)")
     parser.add_argument("--rounds", type=int, default=2, help="A/B/A rounds per switch (default 2)")
     parser.add_argument("--profile", type=float, default=15.0, help="seconds of CPU sampling at the end, 0 = none")
-    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-5; 5 = NPC Motion's Ray Reconstruction), default 1-4")
+    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-5; 1 = Shader Injector, "
+                                                   "no longer installed; 5 = NPC Motion's Ray Reconstruction), default 2-4")
     parser.add_argument("--no-keys", action="store_true", help="press nothing: the same segments, all on")
     args = parser.parse_args()
 
@@ -123,9 +125,8 @@ def main():
         sys.exit(f"PresentMon not found: {PRESENTMON}")
     if args.profile > 0 and not os.path.exists(SAMPLER):
         sys.exit(f"{SAMPLER} missing: run .\\build.ps1 cpu_sampler")
-    switches = SWITCHES[:DEFAULT_SWITCHES]
-    if args.only:
-        switches = [SWITCHES[int(i) - 1] for i in args.only.split(",")]
+    numbers = [int(i) for i in args.only.split(",")] if args.only else list(DEFAULT_SWITCHES)
+    switches = [SWITCHES[i - 1] for i in numbers]
     os.makedirs(args.out_dir, exist_ok=True)
     total = args.segment * (1 + 2 * args.rounds * len(switches)) + args.profile + 15
     if not args.no_keys:

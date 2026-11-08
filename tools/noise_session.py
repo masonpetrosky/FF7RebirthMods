@@ -2,8 +2,9 @@
 
 Start it with the game in front, the party and the camera still, and hands off the controls. It records the screen in
 HDR (ffmpeg ddagrab, 16-bit float scRGB, each new frame at most once) for each state, A/B/A:
-  all on, then each switch off and all on again: Shader Injector (Delete), Vegetation and Hair Fix (F8), its soft
-  edges (F6), NPC Motion's fix (F7), its DLSS jitter phases (F5) and its DLSS pre-exposure (F4)
+  all on, then each switch off and all on again: Vegetation and Hair Fix (F8), its soft edges (F6), NPC Motion's
+  fix (F7), its DLSS jitter phases (F5) and its DLSS pre-exposure (F4) (Shader Injector on Delete was the first
+  switch until it was removed from the game on 2026-11-08)
 letting each state settle --settle seconds first. A switched-off mod is always switched back on. Then, per state:
   - <state>-frame.png: the first frame in SDR (white 203 nits, extended Reinhard to 1000 nits, sRGB), full size;
   - <state>-mean.png: the mean of the frames, same mapping;
@@ -39,7 +40,6 @@ FRAME_BYTES = W * H * 8
 FLICKER_WHITE = 0.04  # PQ deviation drawn white
 # name, label, virtual key, extended key (for the scan code)
 SWITCHES = [
-    ("injector", "Shader Injector", 0x2E, True),             # Delete
     ("vegetation", "Vegetation and Hair Fix", 0x77, False),  # F8
     ("softedges", "soft edges", 0x75, False),                # F6
     ("npcmotion", "NPC Motion fix", 0x76, False),            # F7
@@ -120,7 +120,7 @@ def main():
     parser.add_argument("out_dir")
     parser.add_argument("--frames", type=int, default=16, help="frames per state (default 16)")
     parser.add_argument("--settle", type=float, default=3.0, help="seconds after a switch (default 3)")
-    parser.add_argument("--only", default="", help="comma-separated switches, e.g. injector,jitter (default all)")
+    parser.add_argument("--only", default="", help="comma-separated switches, e.g. vegetation,jitter (default all)")
     parser.add_argument("--toggle", action="append", default=[], metavar="NAME=VK[:ext]",
                         help="instead of the mods' switches, a key that switches something ON, e.g. rr=0x7C (NPC "
                              "Motion's Ray Reconstruction on F13); the states are then 'base' and '<NAME>-on'")
