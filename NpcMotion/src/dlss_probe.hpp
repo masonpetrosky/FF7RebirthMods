@@ -20,6 +20,10 @@ struct ViewValues {
   float mip_bias = 0;        // View_MaterialTextureMipBias
   float pre_exposure = 0;    // View_PreExposure
   float sampler_bias[4] = {};  // View_TemporalSamplerBias: .y is the bias the game's materials sample with
+  // For Ray Reconstruction (row major, row vectors), when the shader's reflection has them.
+  float translated_world_to_view[16] = {};  // View_TranslatedWorldToView
+  float view_to_clip[16] = {};              // View_ViewToClip
+  bool has_matrices = false;
 };
 
 // Installs the hooks once NGX is loaded. `log_path` empty = no logging.

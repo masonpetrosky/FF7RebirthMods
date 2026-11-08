@@ -40,6 +40,7 @@
 
 #include "descriptors.hpp"
 #include "dlss_probe.hpp"
+#include "ray_reconstruction.hpp"
 #include "resolution_menu.hpp"
 #include "shader_reflection.hpp"
 #include "texture_bias_code.hpp"
@@ -58,6 +59,8 @@ namespace fs = std::filesystem;
 constexpr char kCurrentBones[] = "BoneMatrices";
 const char* const kViewVariables[5] = {"View_TemporalAAJitter", "View_TemporalAAParams", "View_MaterialTextureMipBias",
                                        "View_PreExposure", "View_TemporalSamplerBias"};
+// Ray Reconstruction's view matrices, looked up separately: a shader without them keeps the values above.
+const char* const kViewMatrices[2] = {"View_TranslatedWorldToView", "View_ViewToClip"};
 constexpr char kPreviousBones[] = "PreviousBoneMatrices";
 
 fs::path g_ini_path;
@@ -90,6 +93,8 @@ float* g_bias_value = nullptr;   // {extra bias, 0, 0, 0}, read by the redirecte
 int g_interpolated_characters = -1;
 std::string g_budget_status = "the game's";
 int g_pre_exposure_key = 0;
+int g_rr_key = 0;        // switches DLSS Ray Reconstruction for the session (ray_reconstruction.hpp)
+int g_rr_guide_key = 0;  // development: steps through the guide views (off, diffuse, specular, normals, roughness)
 // 1 = add 58% (Balanced) to the graphics options' dynamic resolution limits (resolution_menu.hpp).
 bool g_balanced_step = true;
 std::string g_menu_status = "the game's: 33, 50, 66, 100%";
@@ -124,6 +129,8 @@ struct SkinRegisters {
   npcmotion::Binding view;
   uint32_t view_offsets[std::size(kViewVariables)] = {};
   bool has_view = false;
+  uint32_t matrix_offsets[std::size(kViewMatrices)] = {};  // in the same View buffer
+  bool has_matrices = false;
 };
 std::shared_mutex g_pipelines_mutex;
 std::unordered_map<uint64_t, SkinRegisters> g_skin_pipelines;
@@ -585,6 +592,11 @@ std::optional<SkinRegisters> InspectVertexShader(const shader_desc& vs) {
     if (g_reflection.FindPair(vs.code, vs.code_size, kCurrentBones, kPreviousBones, &regs.current, &regs.previous)) {
       regs.has_view = g_reflection.FindConstants(vs.code, vs.code_size, "View", kViewVariables,
                                                  std::size(kViewVariables), &regs.view, regs.view_offsets);
+      npcmotion::Binding matrices;
+      regs.has_matrices = regs.has_view &&
+                          g_reflection.FindConstants(vs.code, vs.code_size, "View", kViewMatrices,
+                                                     std::size(kViewMatrices), &matrices, regs.matrix_offsets) &&
+                          matrices.reg == regs.view.reg && matrices.space == regs.view.space;
       result = regs;
     }
     else
@@ -693,7 +705,12 @@ void CaptureViewValues(device* dev, const npcmotion::Descriptors& descriptors, c
     return npcmotion::dlss_probe::CountViewFailure(ViewFailure::kNotBound);
   const uint32_t* offsets = data.registers.view_offsets;
   const uint32_t* const end = offsets + std::size(kViewVariables);
-  const uint32_t first = *std::min_element(offsets, end), last = *std::max_element(offsets, end) + 16;
+  uint32_t first = *std::min_element(offsets, end), last = *std::max_element(offsets, end) + 16;
+  const uint32_t* const matrices = data.registers.matrix_offsets;
+  if (data.registers.has_matrices) {
+    first = std::min({first, matrices[0], matrices[1]});
+    last = std::max({last, matrices[0] + 64, matrices[1] + 64});
+  }
   const buffer_range& range = data.root_cbvs[param];
   void* mapped = nullptr;
   if (!dev->map_buffer_region(range.buffer, range.offset + first, last - first, map_access::read_only, &mapped) ||
@@ -706,16 +723,24 @@ void CaptureViewValues(device* dev, const npcmotion::Descriptors& descriptors, c
   memcpy(&values.mip_bias, bytes + offsets[2] - first, sizeof(float));
   memcpy(&values.pre_exposure, bytes + offsets[3] - first, sizeof(float));
   memcpy(values.sampler_bias, bytes + offsets[4] - first, sizeof(values.sampler_bias));
+  if (data.registers.has_matrices) {
+    memcpy(values.translated_world_to_view, bytes + matrices[0] - first, sizeof(values.translated_world_to_view));
+    memcpy(values.view_to_clip, bytes + matrices[1] - first, sizeof(values.view_to_clip));
+    values.has_matrices = true;
+  }
   dev->unmap_buffer_region(range.buffer);
   npcmotion::dlss_probe::SetViewValues(frame, values);
   static std::once_flag once;
   std::call_once(once, [&] {
-    char line[240];
+    char line[400];
     snprintf(line, sizeof(line),
              "View values read (root parameter %u): pre-exposure %g, material mip bias %g, texture bias (%g, %g, %g, "
-             "%g), jitter sequence %g",
+             "%g), jitter sequence %g; view matrices %s (ViewToClip %g %g %g %g / row 3 %g %g %g %g)",
              param, values.pre_exposure, values.mip_bias, values.sampler_bias[0], values.sampler_bias[1],
-             values.sampler_bias[2], values.sampler_bias[3], values.taa_params[1]);
+             values.sampler_bias[2], values.sampler_bias[3], values.taa_params[1],
+             values.has_matrices ? "read" : "not in the shader's reflection", values.view_to_clip[0],
+             values.view_to_clip[5], values.view_to_clip[10], values.view_to_clip[11], values.view_to_clip[12],
+             values.view_to_clip[13], values.view_to_clip[14], values.view_to_clip[15]);
     Log(reshade::log::level::info, line);
   });
 }
@@ -788,6 +813,73 @@ bool OnDrawIndexed(command_list* cmd_list, uint32_t, uint32_t, uint32_t, int32_t
 }
 
 // ---------------------------------------------------------------------------------------------
+// Ray Reconstruction's G-buffer (ray_reconstruction.hpp)
+
+// ReShade's texture usages carry D3D12's resource state bits; undefined and general are D3D12's COMMON.
+uint32_t D3D12State(resource_usage usage) {
+  const auto bits = static_cast<uint32_t>(usage);
+  return bits == 0 || (bits & 0x80000000u) != 0 ? 0u : bits;
+}
+
+bool IsColor8(format f) {
+  return f == format::r8g8b8a8_unorm || f == format::r8g8b8a8_unorm_srgb || f == format::b8g8r8a8_unorm ||
+         f == format::b8g8r8a8_unorm_srgb;
+}
+
+// The base pass binds the scene colour and GBufferA to E (and the velocity) together; GBufferA to C are the second to
+// fourth targets in Unreal's order. The first distinct sets of four or more targets are logged, to check that.
+void OnBindRenderTargets(command_list* cmd_list, uint32_t count, const resource_view* rtvs, resource_view) {
+  if (count < 4 || rtvs == nullptr || !npcmotion::rr::wanted()) return;
+  device* const dev = cmd_list->get_device();
+  format formats[8] = {};
+  const uint32_t n = std::min(count, 8u);
+  for (uint32_t i = 0; i < n; ++i)
+    formats[i] = rtvs[i] != 0 ? dev->get_resource_view_desc(rtvs[i]).format : format::unknown;
+  {
+    static std::mutex mutex;
+    static std::vector<uint64_t> seen;
+    uint64_t signature = count;
+    for (uint32_t i = 0; i < n; ++i) signature = signature * 131 + static_cast<uint32_t>(formats[i]);
+    std::lock_guard lock(mutex);
+    if (seen.size() < 12 && std::find(seen.begin(), seen.end(), signature) == seen.end()) {
+      seen.push_back(signature);
+      std::string line = "Render targets bound together: " + std::to_string(count) + " (formats";
+      for (uint32_t i = 0; i < n; ++i) line += " " + std::to_string(static_cast<uint32_t>(formats[i]));
+      const resource first = rtvs[0] != 0 ? dev->get_resource_from_view(rtvs[0]) : resource{0};
+      if (first != 0) {
+        const resource_desc d = dev->get_resource_desc(first);
+        line += "; the first is " + std::to_string(d.texture.width) + "x" + std::to_string(d.texture.height);
+      }
+      Log(reshade::log::level::info, line + ")");
+    }
+  }
+  const bool gbuffer_a =
+      formats[1] == format::r10g10b10a2_unorm || formats[1] == format::r16g16b16a16_float || IsColor8(formats[1]);
+  if (!gbuffer_a || !IsColor8(formats[2]) || !IsColor8(formats[3]) || rtvs[1] == 0 || rtvs[2] == 0 || rtvs[3] == 0)
+    return;
+  npcmotion::rr::OnGBuffer(reinterpret_cast<ID3D12Resource*>(dev->get_resource_from_view(rtvs[1]).handle),
+                           reinterpret_cast<ID3D12Resource*>(dev->get_resource_from_view(rtvs[2]).handle),
+                           reinterpret_cast<ID3D12Resource*>(dev->get_resource_from_view(rtvs[3]).handle),
+                           static_cast<uint32_t>(formats[1]), static_cast<uint32_t>(formats[2]),
+                           static_cast<uint32_t>(formats[3]));
+}
+
+void OnBarrier(command_list*, uint32_t count, const resource* resources, const resource_usage* old_states,
+               const resource_usage* new_states) {
+  if (!npcmotion::rr::wanted()) return;
+  for (uint32_t i = 0; i < count; ++i)
+    if (old_states[i] != new_states[i])
+      npcmotion::rr::OnBarrier(reinterpret_cast<const void*>(resources[i].handle), D3D12State(new_states[i]));
+}
+
+void RrLog(int level, const char* text) {
+  Log(level >= 2   ? reshade::log::level::error
+      : level == 1 ? reshade::log::level::warning
+                   : reshade::log::level::info,
+      text);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Frames, keys and overlay
 
 // A key counts only while the game's window is in front and neither Alt nor Ctrl is held (Alt+F4 closes the game).
@@ -819,6 +911,10 @@ void OnPresent(command_queue*, swapchain*, const rect*, const rect*, uint32_t, c
   if (KeyPressed(g_mip_bias_key, mip_bias_down)) SetMipBias(!g_mip_bias_on);
   if (KeyPressed(g_pre_exposure_key, pre_exposure_down) && npcmotion::dlss_probe::enabled())
     SetPassPreExposure(!npcmotion::dlss_probe::pass_pre_exposure());
+  static bool rr_down = false, rr_guide_down = false;
+  if (KeyPressed(g_rr_key, rr_down) && npcmotion::dlss_probe::enabled())
+    npcmotion::rr::SetWanted(!npcmotion::rr::wanted());
+  if (KeyPressed(g_rr_guide_key, rr_guide_down)) npcmotion::rr::SetGuideView((npcmotion::rr::guide_view() + 1) % 5);
   // Presents without skinned draws (frames generated by DLSS frame generation, menus, loading screens) keep the last
   // rendered frame's buffers; after a longer stretch of them those are forgotten, since their memory may be reused.
   static uint32_t presents_without_draws = 0;
@@ -929,6 +1025,19 @@ void OnOverlay(effect_runtime*) {
     ImGui::Text("DLSS hooks: %s", npcmotion::dlss_probe::Status().c_str());
     if (npcmotion::dlss_probe::logging() && ImGui::Button("Log the next 120 DLSS evaluations"))
       npcmotion::dlss_probe::Arm(120);
+
+    ImGui::Spacing();
+    bool rr = npcmotion::rr::wanted();
+    if (ImGui::Checkbox("DLSS Ray Reconstruction instead of super resolution", &rr)) npcmotion::rr::SetWanted(rr);
+    ImGui::SetItemTooltip("NVIDIA's denoising DLSS, with guides from the game's G-buffer: the random per-pixel noise of\n"
+                          "screen-space effects (Shader Injector's SSGI and reflections) is denoised instead of\n"
+                          "upscaled. For this session; RayReconstruction in the ini sets the start.");
+    ImGui::TextWrapped("Ray Reconstruction: %s", npcmotion::rr::Status().c_str());
+    if (g_rr_key != 0) ImGui::Text("Ray Reconstruction toggle key: virtual-key %d", g_rr_key);
+    int guide = npcmotion::rr::guide_view();
+    if (ImGui::Combo("Show a guide (development)", &guide,
+                     "Off\0Diffuse albedo\0Specular albedo\0Normals\0Roughness\0"))
+      npcmotion::rr::SetGuideView(guide);
   }
   if (g_reflection_failures != 0)
     ImGui::Text("Shaders whose bone registers could not be read: %zu (see ReShade.log)", g_reflection_failures.load());
@@ -952,7 +1061,13 @@ void Initialize(HMODULE module) {
   g_balanced_step = ReadIniInt(L"BalancedStep", 1) != 0;
   const bool probe = ReadIniInt(L"DlssProbe", 0) != 0;
   const bool pre_exposure = ReadIniInt(L"DlssPreExposure", 0) != 0;
-  if (probe || pre_exposure) {
+  const bool ray_reconstruction = ReadIniInt(L"RayReconstruction", 0) != 0;
+  g_rr_key = ReadIniInt(L"RayReconstructionKey", 0);
+  g_rr_guide_key = ReadIniInt(L"RayReconstructionGuideKey", 0);
+  npcmotion::rr::SetLogger(RrLog);
+  npcmotion::rr::SetGuideView(ReadIniInt(L"RayReconstructionGuide", 0));
+  npcmotion::rr::SetWanted(ray_reconstruction);
+  if (probe || pre_exposure || ray_reconstruction || g_rr_key != 0) {
     g_probe_key = probe ? ReadIniInt(L"DlssProbeKey", 117) : 0;  // F6
     npcmotion::dlss_probe::Initialize(probe ? dir / "FF7RebirthNpcMotion_dlss.log" : fs::path(), pre_exposure);
   }
@@ -985,6 +1100,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       reshade::register_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
       reshade::register_event<reshade::addon_event::draw>(OnDraw);
       reshade::register_event<reshade::addon_event::draw_indexed>(OnDrawIndexed);
+      reshade::register_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(OnBindRenderTargets);
+      reshade::register_event<reshade::addon_event::barrier>(OnBarrier);
       reshade::register_event<reshade::addon_event::present>(OnPresent);
       reshade::register_overlay(nullptr, OnOverlay);
       break;
@@ -996,6 +1113,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
       // ReShade unloads its add-ons with the device while the game keeps running: put back what was changed in the
       // game's memory, so a later load finds the game's own values. Not needed when the process ends.
       if (reserved == nullptr) {
+        npcmotion::rr::Shutdown();
         npcmotion::dlss_probe::Shutdown();
         RestoreBiasStores();
         RestoreMenuSteps();

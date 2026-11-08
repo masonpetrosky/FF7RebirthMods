@@ -10,10 +10,13 @@ letting each state settle --settle seconds first. A switched-off mod is always s
   - <state>-flicker.png: per-pixel temporal standard deviation of PQ-encoded luminance, white = flickers
     (0.04 PQ, about a tenth of the way from black to white in nits' perceptual steps);
   - <state>-std.npy: that deviation as float16, for crops and comparisons;
-and for each switch, <switch>-share.png: the flicker that goes away with it off (white = that switch's flicker; the
-lower of the two neighbouring all-on states minus the off state). The A/A floor (how much two all-on states differ)
-is printed with it: a share near the floor is no share. The raw frames stay in OUT_DIR (about 1 GB a state) for
-full-size crops; delete them afterwards. Keys must match the installed inis (CLAUDE.md "Keys already taken").
+and for each switch, <n>-<switch>-share.png: the flicker that goes away with it off (white = that switch's flicker;
+the lower of the two neighbouring all-on states minus the off state), and <n>-<switch>-removes.png the reverse. The
+A/A floor (how much two all-on states differ) is printed with it: a share near the floor is no share. The raw frames
+stay in OUT_DIR (about 1 GB a state) for full-size crops; delete them afterwards. Keys must match the installed inis
+(CLAUDE.md "Keys already taken").
+--toggle NAME=VK compares something a key switches ON instead (states 'base' and 'NAME-on'), e.g. --toggle rr=0x7C
+--rounds 2 for NPC Motion's DLSS Ray Reconstruction against the game's DLSS (RayReconstructionKey=124, F13).
 """
 import argparse
 import glob
@@ -118,18 +121,32 @@ def main():
     parser.add_argument("--frames", type=int, default=16, help="frames per state (default 16)")
     parser.add_argument("--settle", type=float, default=3.0, help="seconds after a switch (default 3)")
     parser.add_argument("--only", default="", help="comma-separated switches, e.g. injector,jitter (default all)")
+    parser.add_argument("--toggle", action="append", default=[], metavar="NAME=VK[:ext]",
+                        help="instead of the mods' switches, a key that switches something ON, e.g. rr=0x7C (NPC "
+                             "Motion's Ray Reconstruction on F13); the states are then 'base' and '<NAME>-on'")
+    parser.add_argument("--rounds", type=int, default=1, help="times through the switches (default 1)")
     parser.add_argument("--analyse-only", action="store_true", help="analyse the raw frames already in OUT_DIR")
     parser.add_argument("--capture-only", action="store_true", help="record, then leave the analysis for later")
     args = parser.parse_args()
     if not FFMPEG:
         sys.exit("ffmpeg not found (winget Gyan.FFmpeg.Essentials)")
-    switches = [s for s in SWITCHES if not args.only or s[0] in args.only.split(",")]
+    if args.toggle:
+        switches = []
+        for toggle in args.toggle:
+            name, _, key = toggle.partition("=")
+            switches.append((name, name, int(key.removesuffix(":ext"), 0), key.endswith(":ext")))
+        base, suffix = "base", "-on"
+    else:
+        switches = [s for s in SWITCHES if not args.only or s[0] in args.only.split(",")]
+        base, suffix = "all-on", "-off"
+    switches = switches * args.rounds
     os.makedirs(args.out_dir, exist_ok=True)
 
     states = []
     if args.analyse_only:
         for raw in sorted(glob.glob(os.path.join(args.out_dir, "*.raw"))):
             states.append({"name": os.path.basename(raw)[3:-4], "raw": raw})
+        base = "base" if any(s["name"] == "base" for s in states) else "all-on"
     else:
         if not game_running():
             sys.exit("the game is not running")
@@ -150,22 +167,22 @@ def main():
             print(f"  {name:18s} {args.frames} frames in {seconds:.2f} s", flush=True)
 
         try:
-            capture("all-on")
+            capture(base)
             for key, label, vk, extended in switches:
                 if not tap(vk, extended, 0):
                     raise RuntimeError("the game left the front")
                 off = (key, label, vk, extended)
-                capture(f"{key}-off")
+                capture(f"{key}{suffix}")
                 if not tap(vk, extended, 600):
-                    raise RuntimeError(f"could not switch {label} back on")
+                    raise RuntimeError(f"could not switch {label} back")
                 off = None
-                capture("all-on")
+                capture(base)
         finally:
             if off is not None:
                 if tap(off[2], off[3], 600):
-                    print(f"{off[1]} switched back on")
+                    print(f"{off[1]} switched back")
                 else:
-                    print(f"WARNING: {off[1]} is still OFF; press its key in the game")
+                    print(f"WARNING: {off[1]} is still switched; press its key in the game")
         print("Done; the game can be played again.", flush=True)
         if args.capture_only:
             return
@@ -190,7 +207,7 @@ def main():
 
     # A/A floor: the same estimator with an all-on state in the middle (its all-on neighbours two states away), so a
     # switch's share can be told from the scatter of the measurement itself, tile by tile.
-    ons = [i for i, s in enumerate(states) if s["name"] == "all-on"]
+    ons = [i for i, s in enumerate(states) if s["name"] == base]
     floor_tiles, floor_means = [], []
     for a, k, b in zip(ons, ons[1:], ons[2:]):
         adds, removes = share_of(k, (a, b))
@@ -202,20 +219,21 @@ def main():
     floor = max(floor_means) if floor_means else float("nan")
     print(f"A/A floor (an all-on state treated as a switch): mean {floor:.5f}, largest tile {floor_tile.max():.5f}")
     for i, s in enumerate(states):
-        if not s["name"].endswith("-off"):
+        if s["name"] == base:
             continue
-        neighbours = [j for j in (i - 1, i + 1) if 0 <= j < len(states) and states[j]["name"] == "all-on"]
+        neighbours = [j for j in (i - 1, i + 1) if 0 <= j < len(states) and states[j]["name"] == base]
         adds, removes = share_of(i, neighbours)
-        gray(adds, FLICKER_WHITE).save(os.path.join(args.out_dir, f"{s['name'][:-4]}-share.png"))
-        gray(removes, FLICKER_WHITE).save(os.path.join(args.out_dir, f"{s['name'][:-4]}-removes.png"))
+        switch = s["name"].rsplit("-", 1)[0]
+        gray(adds, FLICKER_WHITE).save(os.path.join(args.out_dir, f"{i:02d}-{switch}-share.png"))
+        gray(removes, FLICKER_WHITE).save(os.path.join(args.out_dir, f"{i:02d}-{switch}-removes.png"))
         s["adds_mean"], s["removes_mean"] = float(adds.mean()), float(removes.mean())
         over = tiles_of(adds) - floor_tile
         order = np.argsort(over.ravel())[::-1][:4]
         s["adds_tiles_120px"] = [{"x": int(c * (W // 32)), "y": int(r * (H // 18)), "over_floor": float(over[r, c])}
                                  for r, c in zip(*np.unravel_index(order, over.shape))]
         tiles_over = int((over > 0).sum())
-        print(f"  {s['name']:18s} flicker it adds {s['adds_mean']:.5f}, removes {s['removes_mean']:.5f} "
-              f"(floor {floor:.5f}); tiles above the floor: {tiles_over} of 576, most at "
+        print(f"  {s['name']:18s} flicker only in the {base} states {s['adds_mean']:.5f}, only in this one "
+              f"{s['removes_mean']:.5f} (floor {floor:.5f}); tiles above the floor: {tiles_over} of 576, most at "
               + ", ".join(f"({t['x']},{t['y']}) +{t['over_floor']:.4f}" for t in s["adds_tiles_120px"][:3]))
     summary = {"floor": floor, "floor_means": floor_means, "states": states}
     with open(os.path.join(args.out_dir, "states.json"), "w") as f:

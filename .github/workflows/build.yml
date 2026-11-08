@@ -19,6 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Fetch NVIDIA's DLSS SDK headers (NPC Motion's Ray Reconstruction)
+        shell: pwsh
+        run: ./tools/fetch_dlss_sdk.ps1
+
       - name: Build and package every add-on
         shell: pwsh
         run: foreach ($mod in 'Anisotropic', 'FrameLimit', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix') { ./package.ps1 -Mod $mod }
@@ -40,6 +44,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ./tools/fetch_dlss_sdk.ps1
           $mod, $version = $env:GITHUB_REF_NAME -split '-v', 2
           ./package.ps1 -Mod $mod -Version $version
           gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist/*.zip).FullName --title "FF7Rebirth$mod v$version" --notes-file "$mod/docs/release-notes.md"

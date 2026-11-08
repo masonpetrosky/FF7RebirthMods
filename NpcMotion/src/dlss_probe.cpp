@@ -2,6 +2,8 @@
 
 #include "dlss_probe.hpp"
 
+#include "ray_reconstruction.hpp"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -11,6 +13,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <share.h>
@@ -62,6 +65,8 @@ std::atomic<uint64_t> g_frame{0};
 std::atomic<uint64_t> g_evaluations{0};
 std::atomic<uint64_t> g_pre_exposure_passed{0};
 std::atomic<uint64_t> g_pre_exposure_earlier{0};  // of those, a value read in an earlier frame
+// The previous evaluation was Ray Reconstruction's: the game's super resolution kept no history meanwhile.
+std::atomic<bool> g_rr_ran_last{false};
 const int32_t* g_taa_samples = nullptr;
 const int32_t* g_taa_method = nullptr;
 
@@ -141,7 +146,10 @@ std::string Presets(const NgxParameter* p) {
 
 int CreateFeatureHook(ID3D12GraphicsCommandList* list, int feature, NgxParameter* p, void** handle) {
   const int result = g_create(list, feature, p, handle);
-  if (result == kNgxSuccess) g_created_quality = static_cast<int>(GetI(p, "PerfQualityValue"));
+  if (result == kNgxSuccess) {
+    g_created_quality = static_cast<int>(GetI(p, "PerfQualityValue"));
+    npcmotion::rr::OnGameCreate();
+  }
   char line[1024];
   snprintf(line, sizeof(line),
            "create feature=%d result=0x%X handle=%p frame=%llu render=%lldx%lld out=%lldx%lld quality=%lld "
@@ -153,6 +161,9 @@ int CreateFeatureHook(ID3D12GraphicsCommandList* list, int feature, NgxParameter
   Write(line);
   return result;
 }
+
+int EvaluateGame(ID3D12GraphicsCommandList* list, const void* handle, const NgxParameter* p, void* callback, uint64_t n,
+                 uint64_t frame, const ViewValues& view, bool view_now, float game_pre_exposure);
 
 int EvaluateFeatureHook(ID3D12GraphicsCommandList* list, const void* handle, const NgxParameter* p, void* callback) {
   const uint64_t n = ++g_evaluations;
@@ -181,6 +192,32 @@ int EvaluateFeatureHook(ID3D12GraphicsCommandList* list, const void* handle, con
     ++g_pre_exposure_passed;
     if (!view_now) ++g_pre_exposure_earlier;
   }
+  // Ray Reconstruction in place of the game's super resolution, with the same inputs (ray_reconstruction.hpp).
+  if (npcmotion::rr::wanted()) {
+    npcmotion::rr::Matrices matrices;
+    memcpy(matrices.translated_world_to_view, view.translated_world_to_view, sizeof(matrices.translated_world_to_view));
+    memcpy(matrices.view_to_clip, view.view_to_clip, sizeof(matrices.view_to_clip));
+    if (npcmotion::rr::Evaluate(list, reinterpret_cast<NVSDK_NGX_Parameter*>(const_cast<NgxParameter*>(p)),
+                                GetF(p, "DLSS.Pre.Exposure", 1.0f), view.has_matrices ? &matrices : nullptr)) {
+      g_rr_ran_last = true;
+      return kNgxSuccess;
+    }
+  }
+  // Back from Ray Reconstruction: the game's super resolution starts its history anew, for this evaluation only.
+  if (g_rr_ran_last.exchange(false)) {
+    int game_reset = 0;
+    p->Get("Reset", &game_reset);
+    const_cast<NgxParameter*>(p)->Set("Reset", 1);
+    const int result = EvaluateGame(list, handle, p, callback, n, frame, view, view_now, game_pre_exposure);
+    const_cast<NgxParameter*>(p)->Set("Reset", game_reset);
+    return result;
+  }
+  return EvaluateGame(list, handle, p, callback, n, frame, view, view_now, game_pre_exposure);
+}
+
+// The game's evaluation, logged in full while the probe is armed.
+int EvaluateGame(ID3D12GraphicsCommandList* list, const void* handle, const NgxParameter* p, void* callback, uint64_t n,
+                 uint64_t frame, const ViewValues& view, bool view_now, float game_pre_exposure) {
   if (!g_logging) return g_evaluate(list, handle, p, callback);
 
   const float jx = GetF(p, "Jitter.Offset.X"), jy = GetF(p, "Jitter.Offset.Y");

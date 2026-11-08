@@ -12,3 +12,5 @@ __pycache__/
 /captures/
 # The game's own config files, unpacked from its pak for reference (not ours to publish)
 /gamedata/
+# NVIDIA's DLSS SDK (headers, static library) under NVIDIA's license: tools/fetch_dlss_sdk.ps1 downloads it
+/third_party/dlss/

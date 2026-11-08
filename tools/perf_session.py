@@ -38,7 +38,11 @@ SWITCHES = [
     ("NPC Motion fix", 0x76, False),           # F7
     ("Vegetation and Hair Fix", 0x77, False),  # F8
     ("soft edges", 0x75, False),               # F6
+    # Switches DLSS Ray Reconstruction ON (NPC Motion's RayReconstructionKey; the user's ini sets F13 for tests only):
+    # its "off" segments are Ray Reconstruction's. Not in the default run: --only 5.
+    ("NPC Motion's Ray Reconstruction (switched on)", 0x7C, False),  # F13
 ]
+DEFAULT_SWITCHES = 4  # the first four: the mods' own switches
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -109,7 +113,7 @@ def main():
     parser.add_argument("--segment", type=float, default=10.0, help="seconds per state (default 10)")
     parser.add_argument("--rounds", type=int, default=2, help="A/B/A rounds per switch (default 2)")
     parser.add_argument("--profile", type=float, default=15.0, help="seconds of CPU sampling at the end, 0 = none")
-    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-4), default all")
+    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-5; 5 = NPC Motion's Ray Reconstruction), default 1-4")
     parser.add_argument("--no-keys", action="store_true", help="press nothing: the same segments, all on")
     args = parser.parse_args()
 
@@ -119,7 +123,7 @@ def main():
         sys.exit(f"PresentMon not found: {PRESENTMON}")
     if args.profile > 0 and not os.path.exists(SAMPLER):
         sys.exit(f"{SAMPLER} missing: run .\\build.ps1 cpu_sampler")
-    switches = SWITCHES
+    switches = SWITCHES[:DEFAULT_SWITCHES]
     if args.only:
         switches = [SWITCHES[int(i) - 1] for i in args.only.split(",")]
     os.makedirs(args.out_dir, exist_ok=True)
