@@ -201,9 +201,24 @@ which the game uses itself while a flag at `0x8F32ADA` is set) writes three cons
 The `IConsoleVariable*` of these, of `r.VSync` and of `r.FrameGeneration.Method` are looked up once at startup
 (`0x3AF6CA2`-`0x3AF6DEC`, slots `0x91D8540`-`0x91D8560`). `0x10BC030` reads `t.MaxFPS` back and turns it into a menu
 mode; only the 30 fps mode changes other state (a few timing constants). A value that is none of the four gives mode 0
-with VSync off, the game's own unlimited path. The frame limiter itself is NVIDIA's Streamline handler
-(`FStreamlineMaxTickRateHandler`), which takes `t.MaxFPS`. Lyall's FF7RebirthFix (0.0.10, February 2025) replaces
-the 120 entry with a mid-function hook in `0x10BBA98`; its pattern still matches this executable once.
+with VSync off, the game's own unlimited path. Lyall's FF7RebirthFix (0.0.10, February 2025) replaces the 120 entry
+with a mid-function hook in `0x10BBA98`; its pattern still matches this executable once.
+
+Who waits (2026-11-08; the line above used to say the Streamline handler limits, which is wrong):
+`UEngine::UpdateTimeAndHandleMaxTickRate` (around `0x7943D3`) gets the tick rate from `GetMaxTickRate` (vtable
++0x2D0), computes the wait (1 / rate - delta time), then calls every `IMaxTickRateHandlerModule` (`call [rax+0x28]`,
+slot 5) and waits itself unless one returns true. The game's one handler, `FStreamlineMaxTickRateHandler` (8-byte
+object, vtable `0x5B127C8`, slot 5 = `0x2E8EED4`), ignores the rate: it builds `sl::ReflexOptions` with
+`frameLimitUs = 0` (`mov dword [rsp+0x4C], 0`, virtual key 0x7C), sets them, runs Reflex's sleep and returns false. So
+Unreal's own sleep-and-spin wait enforces `t.MaxFPS`, once per game frame: rendered frames only.
+`GetMaxTickRate` reads `t.MaxFPS` at `0x155BEAA` (`mov rax, [TAutoConsoleVariable 0x90BF990 + 0x10]`, then
+`vmovss xmm1, [rax + r9*4]`) and uses it whenever it is above 0 (`vcmpltss` + `vblendvps`), in place of the smoothed
+rate (`bSmoothFrameRate=false` in the game's `BaseEngine.ini`, so 0 is no limit at all). The only other read is the
+virtual `UEngine::GetMaxFPS` (`0x9C9DE8`). The read-back `0x10BC030` (called at startup `0x3AF6DF3`, `0x3AE0864`, and
+from `0xFE76A4`, `0x10BA7E4`) maps `t.MaxFPS` back to a mode and calls the apply function with it. A value a mod
+writes into `t.MaxFPS` (none of the four) becomes mode 0 there with the game's VSync off (`t.MaxFPS` 0), and with it on
+the 60 or 30 fps VSync mode, picked by `rhi.SyncInterval` (1 or 2). The Frame Limit add-on (`FrameLimit/`) therefore
+redirects the load at `0x155BEAA` instead and leaves `t.MaxFPS` to the game.
 
 No config file the game ships sets `t.MaxFPS` (the device profiles only set streaming, MassiveEnvironment, D3D12 and
 dynamic resolution variables). In Unreal, `t.MaxFPS` under `[SystemSettings]` in the user's
