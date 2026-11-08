@@ -38,8 +38,13 @@ int guide_view();
 // The base pass's G-buffer targets A, B and C (native resources) with the formats (DXGI) of their render target views.
 void OnGBuffer(ID3D12Resource* a, ID3D12Resource* b, ID3D12Resource* c, uint32_t format_a, uint32_t format_b,
                uint32_t format_c);
-// A transition barrier's new state (D3D12_RESOURCE_STATES) for a resource; kept if it is one of the G-buffer targets.
-void OnBarrier(const void* resource, uint32_t new_state);
+// A barrier's states (D3D12_RESOURCE_STATES) for a resource; the new one is kept if it is one of the G-buffer targets.
+void OnBarrier(const void* resource, uint32_t old_state, uint32_t new_state);
+
+// Development: logs the next `lines` G-buffer binds and barriers, presents and evaluations with thread and time
+// (armed when Ray Reconstruction is switched on), to see the order the game records them in.
+void Trace(int lines);
+void TraceMarker(const char* what);
 
 // From the DLSS hook in place of the game's evaluation: true when Ray Reconstruction ran (the game's call is then
 // skipped), false to leave this frame to the game's super resolution. `pre_exposure` is the value the hook passes.

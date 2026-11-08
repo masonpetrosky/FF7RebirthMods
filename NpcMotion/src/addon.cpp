@@ -868,8 +868,8 @@ void OnBarrier(command_list*, uint32_t count, const resource* resources, const r
                const resource_usage* new_states) {
   if (!npcmotion::rr::wanted()) return;
   for (uint32_t i = 0; i < count; ++i)
-    if (old_states[i] != new_states[i])
-      npcmotion::rr::OnBarrier(reinterpret_cast<const void*>(resources[i].handle), D3D12State(new_states[i]));
+    npcmotion::rr::OnBarrier(reinterpret_cast<const void*>(resources[i].handle), D3D12State(old_states[i]),
+                             D3D12State(new_states[i]));
 }
 
 void RrLog(int level, const char* text) {
@@ -905,6 +905,7 @@ void SetPassPreExposure(bool pass) {
 
 void OnPresent(command_queue*, swapchain*, const rect*, const rect*, uint32_t, const rect*) {
   npcmotion::dlss_probe::OnPresent(++g_presents);
+  npcmotion::rr::TraceMarker("present");
   static bool probe_down = false, jitter_down = false, pre_exposure_down = false, mip_bias_down = false;
   if (KeyPressed(g_probe_key, probe_down) && npcmotion::dlss_probe::logging()) npcmotion::dlss_probe::Arm(120);
   if (KeyPressed(g_jitter_key, jitter_down)) SetJitterPhases(!g_jitter_on);

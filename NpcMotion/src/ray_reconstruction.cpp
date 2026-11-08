@@ -107,6 +107,22 @@ std::string Hex(unsigned value) {
   return text;
 }
 
+// The development trace (Trace): lines left, and the time it was armed.
+std::atomic<int> g_trace_lines{0};
+std::atomic<int64_t> g_trace_start{0};
+
+void TraceLine(const std::string& what) {
+  if (g_trace_lines.fetch_sub(1) <= 0) return;
+  LARGE_INTEGER now, frequency;
+  QueryPerformanceCounter(&now);
+  QueryPerformanceFrequency(&frequency);
+  char line[320];
+  snprintf(line, sizeof(line), "Ray Reconstruction trace +%.3f ms [thread %lu] %s",
+           double(now.QuadPart - g_trace_start.load()) * 1000.0 / double(frequency.QuadPart), GetCurrentThreadId(),
+           what.c_str());
+  if (g_log != nullptr) g_log(0, line);
+}
+
 constexpr uint32_t kNonPixel = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 constexpr D3D12_RESOURCE_STATES kReadable =
     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
@@ -583,6 +599,18 @@ void SetWanted(bool on) {
   g_reset_next = true;
   if (!g_unavailable) g_status = on ? "waiting for the game's DLSS" : "off";
   Log(0, on ? "Ray Reconstruction on." : "Ray Reconstruction off: the game's DLSS super resolution.");
+  if (on) Trace(120);
+}
+
+void Trace(int lines) {
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  g_trace_start = now.QuadPart;
+  g_trace_lines = lines;
+}
+
+void TraceMarker(const char* what) {
+  if (g_trace_lines.load(std::memory_order_relaxed) > 0) TraceLine(what);
 }
 
 bool wanted() { return g_wanted; }
@@ -607,12 +635,24 @@ void OnGBuffer(ID3D12Resource* a, ID3D12Resource* b, ID3D12Resource* c, uint32_t
     g_state[i] = D3D12_RESOURCE_STATE_RENDER_TARGET;
   }
   ++g_generation;
+  if (g_trace_lines.load(std::memory_order_relaxed) > 0) {
+    char what[96];
+    snprintf(what, sizeof(what), "the base pass binds the G-buffer (A %p)", static_cast<void*>(a));
+    TraceLine(what);
+  }
 }
 
-void OnBarrier(const void* resource, uint32_t new_state) {
+void OnBarrier(const void* resource, uint32_t old_state, uint32_t new_state) {
   if (resource == nullptr) return;
-  for (int i = 0; i < 3; ++i)
-    if (g_tracked[i].load(std::memory_order_relaxed) == resource) g_state[i] = new_state;
+  for (int i = 0; i < 3; ++i) {
+    if (g_tracked[i].load(std::memory_order_relaxed) != resource) continue;
+    if (old_state != new_state) g_state[i] = new_state;
+    if (g_trace_lines.load(std::memory_order_relaxed) > 0) {
+      char what[96];
+      snprintf(what, sizeof(what), "barrier on GBuffer%c: 0x%X -> 0x%X", "ABC"[i], old_state, new_state);
+      TraceLine(what);
+    }
+  }
 }
 
 bool Evaluate(ID3D12GraphicsCommandList* list, NVSDK_NGX_Parameter* game, float pre_exposure,
@@ -620,6 +660,12 @@ bool Evaluate(ID3D12GraphicsCommandList* list, NVSDK_NGX_Parameter* game, float 
   if (!g_wanted) return false;
   std::lock_guard lock(g_mutex);
   ++g_evaluations;
+  if (g_trace_lines.load(std::memory_order_relaxed) > 0) {
+    char what[96];
+    snprintf(what, sizeof(what), "DLSS evaluation; tracked states 0x%X/0x%X/0x%X", g_state[0].load(),
+             g_state[1].load(), g_state[2].load());
+    TraceLine(what);
+  }
   ReleaseRetired(false);
   if (g_unavailable) return false;
   if (!g_initialized && !InitializeNgx()) {

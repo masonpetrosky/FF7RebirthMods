@@ -480,7 +480,7 @@ int wmain(int argc, wchar_t** argv) {
       if (!stay_target) {
         for (auto& r : gbuffer) {
           Transition(g.list.Get(), r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
-          npcmotion::rr::OnBarrier(r.Get(), kRead);
+          npcmotion::rr::OnBarrier(r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
         }
         readable = true;
       }
