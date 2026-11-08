@@ -61,9 +61,13 @@ Stage 1, development build, one game session at the Costa del Sol bar (install n
       errors in ReShade.log; frame generation still works.
 - [ ] Noise A/B with the RR key (noise_session-style bursts, A/B/A): floor flicker p99 with RR at most SR's; dots on
       hair not worse; no new artifacts on the soft-edged hair fringe, character outlines, fog, transparency, HUD.
-- [ ] Shader Injector's SSR temporarily back at x100000 (its menu): RR's floor flicker p99 within 20% of SR's at x100,
-      and the glossy window reflections kept. If so, recommend the stronger reflections with RR.
-- [ ] Cost: PresentMon GPU busy, RR vs SR at the same spot (expected +1.5-2.5 ms at 4K Performance).
+- [x] Shader Injector's SSR temporarily back at x100000 (its menu): RR's floor flicker p99 within 20% of SR's at x100,
+      and the glossy window reflections kept. If so, recommend the stronger reflections with RR. (Third session:
+      preset F at x100000 has half the floor flicker of SR at x100, reflections kept; static camera only.)
+- [x] Cost: PresentMon GPU busy, RR vs SR at the same spot (expected +1.5-2.5 ms at 4K Performance). (D +1.5 ms,
+      F +2.0 ms.)
+- [ ] Reflections in motion: a scripted camera pan at the glossy floor, SR vs RR at x100000; how long the reflection
+      takes to settle after the pan stops, and whether it trails (see Risks).
 - [ ] Sharpness: Laplacian energy of flat textures, RR vs SR; then the user's eye.
 
 Stage 2: user-facing setting and defaults from stage 1, docs (README, shipped ini, release notes), release with the
@@ -112,6 +116,31 @@ the game's NGX loaded: preset F, DLSS 4.5 Ray Reconstruction; `captures/noise/20
   left the targets in the wrong state. The G-buffer only ever alternates between 0x4 and 0xC0 and the lighting reads
   it before DLSS, so at DLSS it is 0xC0 on the GPU: the fix is to issue no G-buffer barriers at all.
 
+Third session, same spot (9f9835d, preset F; Shader Injector's reflection include at x100, then at x100000 by its
+menu's Recompile All, hair excluded in both, then back to x100; `captures/noise/2026-11-08-costa-bar-ssr-x100-rr`
+and `-ssr-x100000-rr`, A/B/A with the RR key, the calmer of two windows per state):
+
+| 99th percentile of flicker | SR x100 (installed) | RR x100 | SR x100000 | RR x100000 |
+|---|---|---|---|---|
+| left floor, glossy | 0.0034 | 0.0012 | 0.0063 | 0.0017 |
+| its window reflection (1380-1700 x 1150-1700) | 0.0031 | 0.0012 | 0.0099 | 0.0021 |
+| wooden floor, right | 0.0046 | 0.0032 | 0.0039 | 0.0025 |
+| ceiling | 0.0072 | 0.0020 | 0.0081 | 0.0027 |
+| back wall and windows | 0.0094 | 0.0080 | 0.0181 | 0.0093 |
+
+- Median flicker on the floors 0.0012 / 0.0006 / 0.0012 / 0.0006. RR at x100000 is calmer than SR at x100 everywhere
+  measured, and equal on the back wall.
+- The look (`floor-dlss-vs-rr-x100-x100000.png`, grayscale flicker maps `floor-flicker-dlss-vs-rr-x100-x100000.png`
+  in the x100000 folder): at x100000 SR turns the window reflection into sparkling grain that changes every frame; RR
+  shows a smooth reflection with the floor's ripples that stays the same from frame to frame. At 2x zoom RR's
+  reflection looks slightly painted, with small stair-steps along the ripples. At x100 the floor shows almost no
+  window reflection with either.
+- RR's reflection is brighter: the reflection patch's mean (SDR preview) is 0.308 / 0.312 / 0.366 / 0.393. SR's
+  neighbourhood clamp probably throws away part of the sparse bright samples that RR keeps; not proven from screen
+  captures.
+- Conclusion: with RR F on, Shader Injector's own x100000 works without the boiling. With RR off it boils as before, so
+  the two settings go together. Not covered: camera motion (all static camera).
+
 ## Risks
 
 - RR is trained on ray-traced noise. Screen-space noise looks alike per pixel, but its disocclusions differ (P3R mixed
@@ -119,4 +148,7 @@ the game's NGX loaded: preset F, DLSS 4.5 Ray Reconstruction; `captures/noise/20
 - The soft-edged hair fringe (Vegetation and Hair Fix) is blended into the colour before DLSS while the guides show
   only the opaque core: RR may smear or drop the fringe.
 - RR replaces SR's preset: the user's SR preset choice doesn't apply under RR.
+- Reflections in motion: we don't give RR its optional reflection inputs (`DLSSD.SpecularHitDistance` or
+  `GBuffer.SpecularMvec`; the reflection is Shader Injector's, and its hit distances never leave its shaders), so a
+  moving camera may make strong reflections (x100000) trail or lag.
 - A second NGX feature in the game's context: release it before the game's NGX shuts down (device loss, exit).
