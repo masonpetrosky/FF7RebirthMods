@@ -162,6 +162,59 @@ int main(int argc, char** argv) {
            "and back at the game's function");
   }
 
+  // NVIDIA Reflex's mode: the call in HandleMaxTickRate, redirected to the switch and back.
+  if (vtable != nullptr) {
+    auto* const handle = static_cast<const uint8_t*>(vtable[code::kHandleMaxTickRateSlot]);
+    code::ReflexSite rsite;
+    const bool found = code::FindReflexModeCall(image, handle, &rsite);
+    Expect(found, "Reflex's mode call found in HandleMaxTickRate, calling the frame generation check");
+    if (found) {
+      std::printf("      mode call at rva 0x%X, check at rva 0x%X, flags available rva 0x%X, enabled rva 0x%X\n",
+                  image.Rva(rsite.call), image.Rva(rsite.check), image.Rva(rsite.available), image.Rva(rsite.enabled));
+      code::ReflexSwitch sw;
+      int32_t rdisp = 0, before = 0;
+      memcpy(&before, rsite.call + 1, 4);
+      Expect(code::MakeReflexSwitch(rsite.call, rsite.check, true, &sw) &&
+                 code::Displacement(rsite.call, code::kCallSize, sw.code, &rdisp),
+             "the switch allocated within reach of the call");
+      Expect(code::WriteDisplacement(rsite.call, code::kCallSize, rdisp) &&
+                 code::RipTarget(rsite.call, code::kCallSize) == sw.code,
+             "the call goes to the switch");
+      code::ReflexSite again;
+      Expect(!code::FindReflexModeCall(image, handle, &again), "a redirected call is not found again");
+      Expect(code::WriteDisplacement(rsite.call, code::kCallSize, before) &&
+                 code::RipTarget(rsite.call, code::kCallSize) == rsite.check,
+             "and goes to the game's check again once put back");
+      // A changed check is refused.
+      std::vector<uint8_t> copy(rsite.check, rsite.check + code::kCheckSize);
+      copy[19] = 0x00;  // mov al, 0
+      Expect(!code::IsReflexCheck(copy.data()) && code::IsReflexCheck(rsite.check),
+             "a check that does not answer 1 is refused, the game's is accepted");
+    }
+  }
+
+  // The switch on a check of its own: called the way HandleMaxTickRate calls the check.
+  {
+    using CheckFn = bool(__fastcall*)();
+    static bool answer = false;
+    const CheckFn fake = [] { return answer; };
+    code::ReflexSwitch sw;
+    Expect(code::MakeReflexSwitch(reinterpret_cast<const void*>(&main), reinterpret_cast<void*>(fake), false, &sw),
+           "a switch for a stand-in check");
+    const auto call = reinterpret_cast<CheckFn>(sw.code);
+    answer = false;
+    const bool off_false = call();
+    answer = true;
+    const bool off_true = call();
+    sw.Set(true);
+    answer = false;
+    const bool on_false = call();
+    sw.Set(false);
+    const bool off_again = call();
+    Expect(!off_false && off_true && on_false && !off_again,
+           "off: the game's check decides (false, true); on: always true; off again: the check again");
+  }
+
   // The counter on a vtable of its own: called the way the engine calls the handler.
   {
     void* fake_vtable[8] = {};

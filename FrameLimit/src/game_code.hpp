@@ -265,6 +265,103 @@ inline bool MakeCallCounter(void* original, CallCounter* counter) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// NVIDIA Reflex's mode
+
+// Each game frame, HandleMaxTickRate (the handler's slot 5) builds sl::ReflexOptions for slReflexSetOptions. Their mode
+// comes from a call to a check that is true only while DLSS frame generation is available and enabled:
+//   xor al, al; cmp [available], al; je end; cmp [enabled], al; je end; mov al, 1; end: ret
+// Low Latency then, Off otherwise. The game's renderer sets "enabled" every frame from r.FrameGeneration.Method, and the
+// same check also gates DLSS frame generation's own work, so only this one call is changed. It is followed by the other
+// option stores: xor ecx, ecx; mov dword ptr [rsp+0x4C], 0 (frameLimitUs); test al, al.
+inline constexpr uint8_t kModeCallTail[12] = {0x33, 0xC9, 0xC7, 0x44, 0x24, 0x4C, 0x00, 0x00, 0x00, 0x00, 0x84, 0xC0};
+inline constexpr size_t kCallSize = 5;      // E8 rel32
+inline constexpr size_t kModeCallReach = 0x200;  // the call lies this close to the start of HandleMaxTickRate
+inline constexpr size_t kCheckSize = 21;
+
+// The check's code with its two RIP-relative flag reads left out (bytes 4-7 and 12-15).
+inline bool IsReflexCheck(const uint8_t* p) {
+  static constexpr uint8_t head[4] = {0x32, 0xC0, 0x38, 0x05};
+  static constexpr uint8_t mid[4] = {0x74, 0x0A, 0x38, 0x05};
+  static constexpr uint8_t tail[5] = {0x74, 0x02, 0xB0, 0x01, 0xC3};
+  return memcmp(p, head, 4) == 0 && memcmp(p + 8, mid, 4) == 0 && memcmp(p + 16, tail, 5) == 0;
+}
+
+struct ReflexSite {
+  uint8_t* call = nullptr;         // the call in HandleMaxTickRate
+  uint8_t* check = nullptr;        // the game's check it calls
+  const uint8_t* available = nullptr;  // the check's flags: DLSS frame generation available (Reflex supported)...
+  const uint8_t* enabled = nullptr;    // ...and enabled
+};
+
+// The mode's call in HandleMaxTickRate (`function`), if exactly one matches and calls the check.
+inline bool FindReflexModeCall(const Image& image, const uint8_t* function, ReflexSite* site) {
+  if (!image.text.Contains(function, kModeCallReach + kCallSize + sizeof(kModeCallTail))) return false;
+  uint8_t* found = nullptr;
+  for (size_t i = 0; i < kModeCallReach; ++i) {
+    const uint8_t* p = function + i;
+    if (p[0] != 0xE8 || memcmp(p + kCallSize, kModeCallTail, sizeof(kModeCallTail)) != 0) continue;
+    if (found != nullptr) return false;
+    found = const_cast<uint8_t*>(p);
+  }
+  if (found == nullptr) return false;
+  uint8_t* const check = RipTarget(found, kCallSize);
+  if (!image.text.Contains(check, kCheckSize) || !IsReflexCheck(check)) return false;
+  site->call = found;
+  site->check = check;
+  site->available = RipTarget(check + 2, 6);
+  site->enabled = RipTarget(check + 10, 6);
+  return image.data.Contains(site->available) && image.data.Contains(site->enabled);
+}
+
+// The routine the mode's call goes to instead: true (Low Latency) while `on` is set, else the game's check.
+//   cmp byte ptr [rip + on], 0
+//   je game
+//   mov al, 1
+//   ret
+//   game: jmp qword ptr [rip + check]
+// Code on one page (read/execute) within reach of the call, `on` and the check's address on the page after it
+// (read/write). Never freed, like the call counter.
+struct ReflexSwitch {
+  uint8_t* code = nullptr;
+  uint8_t* on = nullptr;
+  void** check = nullptr;
+  void Set(bool value) { std::atomic_ref<uint8_t>(*on).store(value ? 1 : 0, std::memory_order_relaxed); }
+  bool Get() const { return std::atomic_ref<uint8_t>(*on).load(std::memory_order_relaxed) != 0; }
+};
+
+inline void* AllocateNear(const void* near_address, size_t size);  // below
+
+inline bool MakeReflexSwitch(const void* near_code, void* check, bool on, ReflexSwitch* out) {
+  SYSTEM_INFO info;
+  GetSystemInfo(&info);
+  const size_t page = info.dwPageSize;
+  auto* const code = static_cast<uint8_t*>(AllocateNear(near_code, 2 * page));
+  if (code == nullptr) return false;
+  uint8_t* const data = code + page;
+  int32_t disp;
+  const uint8_t cmp[2] = {0x80, 0x3D};  // cmp byte ptr [rip+disp32], imm8 (7 bytes)
+  memcpy(code, cmp, 2);
+  Displacement(code, 7, data, &disp);
+  memcpy(code + 2, &disp, 4);
+  code[6] = 0x00;
+  const uint8_t rest[5] = {0x74, 0x03, 0xB0, 0x01, 0xC3};  // je +3; mov al, 1; ret
+  memcpy(code + 7, rest, 5);
+  memcpy(code + 12, kJmpRip, sizeof(kJmpRip));  // jmp qword ptr [rip+disp32] (6 bytes)
+  Displacement(code + 12, 6, data + 8, &disp);
+  memcpy(code + 14, &disp, 4);
+  memset(code + 18, 0xCC, 2);
+  data[0] = on ? 1 : 0;
+  memcpy(data + 8, &check, sizeof(check));
+  DWORD old;
+  if (!VirtualProtect(code, page, PAGE_EXECUTE_READ, &old)) return false;
+  FlushInstructionCache(GetCurrentProcess(), code, 20);
+  out->code = code;
+  out->on = data;
+  out->check = reinterpret_cast<void**>(data + 8);
+  return true;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Memory near the code
 
 // Committed read-write memory within reach of a RIP-relative displacement from `near_address` (a little under 2 GB):

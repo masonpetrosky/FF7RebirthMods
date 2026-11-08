@@ -16,11 +16,17 @@
 // game's own value. While the game's own VSync is on and frame generation off, the game also sets rhi.SyncInterval to
 // refresh rate / option (2 for 120 fps at 240 Hz), which limits the frame rate as well; the add-on lowers it to 1 while
 // its limit is on, so VSync waits for one refresh, not two.
+//
+// NVIDIA Reflex: the game sends Reflex's latency markers whenever Reflex is available, but gives it Low Latency mode only
+// while DLSS frame generation is on (the mode comes from the same check that gates frame generation's own work). The
+// add-on sends that one call to a routine of its own (game_code.hpp, ReflexSwitch), which answers true while Reflex is
+// to stay on and asks the game's check otherwise, so frame generation itself is left alone.
 // SPDX-License-Identifier: MIT
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <unknwn.h>
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -40,7 +46,7 @@
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth Frame Limit";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Replaces FINAL FANTASY VII REBIRTH's 30/60/90/120 limit on rendered frames with one limit on the frames the "
-    "display shows, frame generation included.";
+    "display shows, frame generation included, and keeps NVIDIA Reflex on also without frame generation.";
 
 using namespace reshade::api;
 namespace code = framelimit::game_code;
@@ -57,6 +63,8 @@ int g_limit = -1;      // shown frames per second; 0 = no limit; below 0 = 3 bel
 int g_test_limit = 0;  // a second limit the toggle key also switches to; 0 = none
 int g_toggle_key = 0;  // virtual-key code, 0 = none
 bool g_log_stats = false;
+bool g_reflex_setting = true;  // Reflex in the ini: 1 = NVIDIA Reflex on also without frame generation
+int g_reflex_key = 0;          // virtual-key code that switches that for the session, 0 = none
 
 // Which limit applies: the game's own frame-rate option, Limit, or TestLimit.
 enum class Mode { game, limit, test };
@@ -73,6 +81,11 @@ code::LimitValue g_value;               // what the engine waits for
 void** g_handler_slot = nullptr;        // FStreamlineMaxTickRateHandler::HandleMaxTickRate, counted by g_frames
 void* g_handler_function = nullptr;     // the game's function in that slot
 code::CallCounter g_frames;
+code::ReflexSite g_reflex_site;    // Reflex's mode: the call in HandleMaxTickRate and the game's check
+code::ReflexSwitch g_reflex;       // where that call goes instead
+uint8_t* g_reflex_call = nullptr;  // the call, while redirected
+int32_t g_reflex_disp = 0;         // its own displacement
+std::string g_reflex_status = "not set up";
 bool g_active = false;  // the engine's limiter reads g_value
 std::string g_status;   // what happened at startup, for the overlay
 
@@ -94,6 +107,7 @@ int64_t g_monitor_checked = 0, g_refresh_queried = 0;
 int32_t g_game_sync = -1;  // rhi.SyncInterval the game had set before the add-on lowered it to 1; -1 = not lowered
 int64_t g_stats_logged = 0;
 bool g_toggle_down = false;
+bool g_reflex_down = false;
 
 void Log(reshade::log::level level, const std::string& message) {
   reshade::log::message(level, ("[FrameLimit] " + message).c_str());
@@ -268,16 +282,108 @@ void Measure(int64_t now) {
                        : ""));
 }
 
+std::string ReflexNow();   // below, with the rest of Reflex
+std::string DriverText();
+
 void LogStats(int64_t now) {
   if (!g_log_stats || now - g_stats_logged < 5 * g_qpf) return;
   g_stats_logged = now;
   const Mode mode = g_mode.load();
   Log(reshade::log::level::info,
       Format("Shown %.1f fps, rendered %.1f fps, %d per rendered frame (%s); limit: %s, rendered %.2f; the game's "
-             "t.MaxFPS %.2f; rhi.SyncInterval %d; r.FrameGeneration.Method %d.",
+             "t.MaxFPS %.2f; rhi.SyncInterval %d; r.FrameGeneration.Method %d; Reflex %s; driver: %s.",
              g_shown_fps, g_rendered_fps, g_per_frame, g_counted ? "counted" : "setting",
              mode == Mode::game ? "the game's" : ShownLimitText(mode).c_str(), g_rendered_limit, g_game_value,
-             ReadInt(g_sync), ReadInt(g_frame_gen)));
+             ReadInt(g_sync), ReadInt(g_frame_gen), ReflexNow().c_str(), DriverText().c_str()));
+}
+
+// ---------------------------------------------------------------------------------------------
+// NVIDIA Reflex
+
+bool Flag(const uint8_t* flag) { return flag != nullptr && std::atomic_ref<uint8_t>(*const_cast<uint8_t*>(flag)).load() != 0; }
+
+// What Reflex runs as now: the game gives it Low Latency only while DLSS frame generation is available and on.
+std::string ReflexNow() {
+  if (g_reflex_call == nullptr) return g_reflex_status;
+  if (!Flag(g_reflex_site.available)) return "not available (needs an NVIDIA GPU and driver with Reflex)";
+  if (g_reflex.Get()) return "on (kept on by the add-on)";
+  return Flag(g_reflex_site.enabled) ? "on (frame generation is on)" : "off (the game's: on only with frame generation)";
+}
+
+// What NVIDIA's driver reports for the game's device, asked once a second: NvAPI_D3D_GetSleepStatus
+// (NV_GET_SLEEP_STATUS_PARAMS_V1; IDs from NVIDIA's nvapi_interface.h). -1 = not known.
+struct SleepStatus {
+  uint32_t version;
+  uint8_t low_latency_mode;  // Reflex's low latency mode is on
+  uint8_t fullscreen_vrr;    // G-SYNC (variable refresh) is active for the game's window
+  uint8_t panel_vsync_on;    // V-Sync is forced on in NVIDIA's control panel or app
+  uint8_t reserved[126];
+};
+static_assert(sizeof(SleepStatus) == 136);
+using NvQueryInterface = void*(__cdecl*)(uint32_t);
+using NvInitialize = int(__cdecl*)();
+using NvGetSleepStatus = int(__cdecl*)(IUnknown*, SleepStatus*);
+NvGetSleepStatus g_get_sleep_status = nullptr;
+bool g_nvapi_tried = false;
+int g_driver_low_latency = -1, g_driver_vrr = -1, g_driver_vsync = -1;
+int64_t g_driver_checked = 0;
+
+std::string DriverText() {
+  if (g_driver_low_latency < 0) return "not known";
+  return Format("Reflex low latency mode %s, G-SYNC %s, V-Sync forced by NVIDIA's settings: %s",
+                g_driver_low_latency ? "on" : "off", g_driver_vrr ? "active" : "not active", g_driver_vsync ? "yes" : "no");
+}
+
+void QueryDriver(device* dev, int64_t now) {
+  if (now - g_driver_checked < g_qpf) return;
+  g_driver_checked = now;
+  if (!g_nvapi_tried) {
+    g_nvapi_tried = true;
+    const HMODULE nvapi = GetModuleHandleW(L"nvapi64.dll");  // loaded by the game's Streamline on NVIDIA GPUs
+    const auto query = nvapi ? reinterpret_cast<NvQueryInterface>(GetProcAddress(nvapi, "nvapi_QueryInterface")) : nullptr;
+    const auto initialize = query ? reinterpret_cast<NvInitialize>(query(0x0150E828)) : nullptr;
+    if (initialize != nullptr && initialize() == 0) g_get_sleep_status = reinterpret_cast<NvGetSleepStatus>(query(0xAEF96CA1));
+  }
+  if (g_get_sleep_status == nullptr || dev->get_api() != device_api::d3d12) return;
+  SleepStatus status{};
+  status.version = sizeof(SleepStatus) | (1u << 16);
+  if (g_get_sleep_status(reinterpret_cast<IUnknown*>(dev->get_native()), &status) != 0) return;
+  const int low = status.low_latency_mode != 0, vrr = status.fullscreen_vrr != 0, vsync = status.panel_vsync_on != 0;
+  if (low == g_driver_low_latency && vrr == g_driver_vrr && vsync == g_driver_vsync) return;
+  g_driver_low_latency = low, g_driver_vrr = vrr, g_driver_vsync = vsync;
+  Log(reshade::log::level::info, "NVIDIA driver: " + DriverText() + ".");
+}
+
+void SetReflex(bool on) {
+  if (g_reflex_call == nullptr) return;
+  g_reflex.Set(on);
+  Log(reshade::log::level::info, on ? "NVIDIA Reflex kept on, also without frame generation."
+                                    : "NVIDIA Reflex as the game has it: on only with frame generation.");
+}
+
+// Points the mode's call at the add-on's switch. At startup, before the game renders.
+void InstallReflex(const uint8_t* handle_max_tick_rate) {
+  if (!code::FindReflexModeCall(g_image, handle_max_tick_rate, &g_reflex_site)) {
+    g_reflex_status = "the game's (its Reflex code was not found)";
+    Log(reshade::log::level::warning, "NVIDIA Reflex: the mode's code in HandleMaxTickRate was not found; the game's.");
+    return;
+  }
+  int32_t disp = 0;
+  if (!code::MakeReflexSwitch(g_reflex_site.call, g_reflex_site.check, g_reflex_setting, &g_reflex) ||
+      !code::Displacement(g_reflex_site.call, code::kCallSize, g_reflex.code, &disp)) {
+    g_reflex_status = "the game's (no memory within reach of its code)";
+    Log(reshade::log::level::warning, "NVIDIA Reflex: no memory within reach of its code; the game's.");
+    return;
+  }
+  memcpy(&g_reflex_disp, g_reflex_site.call + 1, 4);
+  if (!code::WriteDisplacement(g_reflex_site.call, code::kCallSize, disp)) {
+    g_reflex_status = "the game's (its code could not be changed)";
+    return;
+  }
+  g_reflex_call = g_reflex_site.call;
+  Log(reshade::log::level::info,
+      Format("NVIDIA Reflex's mode (call at rva 0x%X) goes through the add-on: %s.", g_image.Rva(g_reflex_call),
+             g_reflex_setting ? "on, also without frame generation" : "the game's, on only with frame generation"));
 }
 
 void SetMode(Mode mode) {
@@ -301,10 +407,13 @@ bool KeyPressed(int vk, bool& was_down) {
 // Every present, generated frames included (frame generation may present them from another thread).
 void OnPresent(command_queue*, swapchain* swapchain, const rect*, const rect*, uint32_t, const rect*) {
   g_presents.fetch_add(1, std::memory_order_relaxed);
-  if (!g_active) return;
+  if (!g_active && g_reflex_call == nullptr) return;
   std::unique_lock lock(g_mutex, std::try_to_lock);
   if (!lock.owns_lock()) return;
+  if (KeyPressed(g_reflex_key, g_reflex_down)) SetReflex(!g_reflex.Get());
   const int64_t now = Qpc();
+  QueryDriver(swapchain->get_device(), now);
+  if (!g_active) return;
   UpdateRefreshRate(static_cast<HWND>(swapchain->get_hwnd()), now);
   if (KeyPressed(g_toggle_key, g_toggle_down)) {
     const Mode mode = g_mode.load();
@@ -320,11 +429,22 @@ void OnPresent(command_queue*, swapchain* swapchain, const rect*, const rect*, u
 // Overlay
 
 void OnOverlay(effect_runtime*) {
+  std::unique_lock lock(g_mutex);
+  if (g_reflex_call != nullptr) {
+    bool reflex = g_reflex.Get();
+    if (ImGui::Checkbox("NVIDIA Reflex also without frame generation", &reflex)) SetReflex(reflex);
+    ImGui::SetItemTooltip("The game runs Reflex (Low Latency) only while DLSS frame generation is on.\n"
+                          "Switches for this session; Reflex in the ini sets it for the next start.");
+  }
+  ImGui::Text("NVIDIA Reflex: %s", ReflexNow().c_str());
+  ImGui::TextWrapped("NVIDIA driver: %s", DriverText().c_str());
+  ImGui::SetItemTooltip("What the driver reports for the game's device (NvAPI_D3D_GetSleepStatus), once a second.");
+  if (g_reflex_key != 0) ImGui::Text("Reflex key: virtual-key %d", g_reflex_key);
+  ImGui::Spacing();
   if (!g_active) {
-    ImGui::TextWrapped("Not working: %s", g_status.c_str());
+    ImGui::TextWrapped("Frame limit not working: %s", g_status.c_str());
     return;
   }
-  std::unique_lock lock(g_mutex);
   const Mode mode = g_mode.load();
   bool on = mode != Mode::game;
   if (ImGui::Checkbox("Limit the frames the display shows", &on)) SetMode(on ? Mode::limit : Mode::game);
@@ -388,12 +508,32 @@ void Initialize(HMODULE module) {
   g_toggle_key = ReadIniInt(L"ToggleKey", 0);
   g_log_stats = ReadIniInt(L"LogStats", 0) != 0;
   g_mode = ReadIniInt(L"Enabled", 1) != 0 ? Mode::limit : Mode::game;
+  g_reflex_setting = ReadIniInt(L"Reflex", 1) != 0;
+  g_reflex_key = ReadIniInt(L"ReflexKey", 0);
   LARGE_INTEGER f;
   QueryPerformanceFrequency(&f);
   g_qpf = f.QuadPart;
 
   const int64_t start = Qpc();
   g_image = code::Sections(GetModuleHandleW(nullptr));
+
+  // The Streamline tick-rate handler: its HandleMaxTickRate counts game frames and holds Reflex's mode.
+  std::string frames;
+  void** const vtable = code::FindVtable(g_image, kHandlerClass);
+  void* const function = vtable != nullptr ? vtable[code::kHandleMaxTickRateSlot] : nullptr;
+  if (function != nullptr && g_image.text.Contains(function)) InstallReflex(static_cast<const uint8_t*>(function));
+  if (function != nullptr && g_image.text.Contains(function) && code::MakeCallCounter(function, &g_frames) &&
+      code::WritePointer(&vtable[code::kHandleMaxTickRateSlot], g_frames.code)) {
+    g_handler_slot = &vtable[code::kHandleMaxTickRateSlot];
+    g_handler_function = function;
+    frames = Format("game frames counted at the Streamline tick-rate handler (vtable rva 0x%X)", g_image.Rva(vtable));
+  } else {
+    g_frames = {};
+    frames = "the Streamline tick-rate handler was not found, so shown frames per rendered frame follow the frame "
+             "generation setting (2 when it is on)";
+    if (vtable == nullptr) g_reflex_status = "the game's (the Streamline tick-rate handler was not found)";
+  }
+
   const wchar_t* const names[3] = {L"t.MaxFPS", L"r.FrameGeneration.Method", L"rhi.SyncInterval"};
   uint8_t* objects[3];
   code::FindAutoVariables(g_image, names, 3, objects);
@@ -434,19 +574,6 @@ void Initialize(HMODULE module) {
   g_limiter_load = site;
   g_active = true;
 
-  std::string frames;
-  void** const vtable = code::FindVtable(g_image, kHandlerClass);
-  void* const function = vtable != nullptr ? vtable[code::kHandleMaxTickRateSlot] : nullptr;
-  if (function != nullptr && g_image.text.Contains(function) && code::MakeCallCounter(function, &g_frames) &&
-      code::WritePointer(&vtable[code::kHandleMaxTickRateSlot], g_frames.code)) {
-    g_handler_slot = &vtable[code::kHandleMaxTickRateSlot];
-    g_handler_function = function;
-    frames = Format("game frames counted at the Streamline tick-rate handler (vtable rva 0x%X)", g_image.Rva(vtable));
-  } else {
-    g_frames = {};
-    frames = "the Streamline tick-rate handler was not found, so shown frames per rendered frame follow the frame "
-             "generation setting (2 when it is on)";
-  }
   const double ms = 1000.0 * static_cast<double>(Qpc() - start) / static_cast<double>(g_qpf);
   g_status = "working";
   Log(reshade::log::level::info,
@@ -460,6 +587,8 @@ void Initialize(HMODULE module) {
 // Puts back what was changed in the game's code and values. The routine and the value page stay: a thread may still be
 // in them.
 void Restore() {
+  if (g_reflex_call != nullptr) code::WriteDisplacement(g_reflex_call, code::kCallSize, g_reflex_disp);
+  g_reflex_call = nullptr;
   if (g_handler_slot != nullptr) code::WritePointer(g_handler_slot, g_handler_function);
   g_handler_slot = nullptr;
   if (g_limiter_load != nullptr) code::WriteDisplacement(g_limiter_load, code::kLimiterLoadSize, g_limiter_disp);

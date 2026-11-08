@@ -43,6 +43,21 @@ VSync waits for one refresh, not two. (With frame generation on, the game turns 
 Without the Streamline handler (another GPU vendor, or a game version where it is not found), the shown frames per
 rendered frame follow the game's frame generation setting (`r.FrameGeneration.Method`): 2 when it is on.
 
+## NVIDIA Reflex without frame generation
+
+The game has no Reflex option. It sends Reflex's latency markers whenever Reflex is available, but each frame it gives
+Reflex Low Latency mode only while DLSS frame generation is on: the mode comes from the same check that gates frame
+generation's own work (frame generation available and enabled), so with frame generation off Reflex is off. With
+`Reflex=1` (the default) the add-on sends that one call to a small routine of its own, which answers "on" while Reflex
+is to stay on and asks the game's check otherwise. Frame generation itself is left alone. Reflex then keeps the render
+queue short whenever the GPU is the limit, which lowers the delay from input to the screen. With V-Sync forced on in
+NVIDIA's settings and G-SYNC active, the driver also holds the frame rate a little below the refresh rate while
+Reflex runs, as it already does with frame generation.
+
+The overlay shows what the driver itself reports for the game's device (`NvAPI_D3D_GetSleepStatus`, once a second):
+whether Reflex's low latency mode is on, whether G-SYNC is active and whether V-Sync is forced in NVIDIA's settings.
+`ReShade.log` gets a line whenever that changes.
+
 ## Measured
 
 2026-11-08, RTX 5070 Ti, 4K 240 Hz G-SYNC display with V-Sync forced in the NVIDIA app, the camera on the sky so the
@@ -85,6 +100,8 @@ Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in
 | `ToggleKey` | 0 | Virtual-key code that switches between `Limit` and the game's own limit for the session (121 = F10). |
 | `TestLimit` | 0 | Testing: a second limit that `ToggleKey` also switches to (`Limit`, `TestLimit`, the game's). |
 | `LogStats` | 0 | 1 = write the measured frame rates and the limit in use to `ReShade.log` every 5 seconds. |
+| `Reflex` | 1 | 1 = NVIDIA Reflex on also without frame generation, 0 = the game's (on only with frame generation). |
+| `ReflexKey` | 0 | Virtual-key code that switches `Reflex` for the session, for comparisons. |
 
 The overlay's Add-ons tab shows the frame rates it measures (shown and rendered), the shown frames per rendered frame,
 the limit in use and the game's own option, and has a checkbox for the limit and a slider for `Limit`, which saves it.
