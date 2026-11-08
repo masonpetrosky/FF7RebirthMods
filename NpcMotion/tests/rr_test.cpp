@@ -9,8 +9,9 @@
 //   R32G8X24_TYPELESS (the game's formats), 1920x1080 -> 3840x2160, and a G-buffer of known values: a dielectric
 //   left half, a tilted metal right half, unlit rows at the top.
 // - Frames 1-4 show one guide each over the output (the development view); the output is read back and compared with
-//   the guides computed here from the same quantised G-buffer (frame 1 with the G-buffer still a render target, so the
-//   pass's own barriers are exercised). A frame without a base pass must fall back to the game's call. Then frames of
+//   the guides computed here from the same quantised G-buffer (in frame 1 the add-on hears of the G-buffer's transition
+//   only after the evaluation, as in the game's recording order). A frame without a base pass must fall back to the
+//   game's call. Then frames of
 //   plain Ray Reconstruction must give finite output close to the flat input colour.
 // usage: rr_test.exe <the game's Win64 folder> <scratch folder for NGX's logs>
 // SPDX-License-Identifier: MIT
@@ -467,28 +468,28 @@ int wmain(int argc, wchar_t** argv) {
   npcmotion::rr::SetLogger(OnRrLog);
   npcmotion::rr::SetWanted(true);
 
-  // One frame: the base pass's binding (and, unless `stay_target`, its barrier to shader resources), the jitter, the
-  // evaluation the DLSS hook would hand over.
+  // One frame as the game has it: the base pass's binding, the G-buffer's transition to shader resources (on the GPU
+  // before DLSS), the jitter, the evaluation the DLSS hook hands over. With `late_event`, the add-on hears of that
+  // transition only after the evaluation, as the game's recording order sometimes has it.
   bool readable = false;  // the G-buffer's state: shader resource or render target
-  auto frame = [&](int n, bool base_pass, bool stay_target, int guide) {
+  auto frame = [&](int n, bool base_pass, bool late_event, int guide) {
     if (base_pass) {
       if (readable)
         for (auto& r : gbuffer) Transition(g.list.Get(), r.Get(), kRead, D3D12_RESOURCE_STATE_RENDER_TARGET);
-      readable = false;
       npcmotion::rr::OnGBuffer(gbuffer[0].Get(), gbuffer[1].Get(), gbuffer[2].Get(), formats[0], formats[1],
                                formats[2]);
-      if (!stay_target) {
-        for (auto& r : gbuffer) {
-          Transition(g.list.Get(), r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
-          npcmotion::rr::OnBarrier(r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
-        }
-        readable = true;
+      for (auto& r : gbuffer) {
+        Transition(g.list.Get(), r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
+        if (!late_event) npcmotion::rr::OnBarrier(r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
       }
+      readable = true;
     }
     NVSDK_NGX_Parameter_SetF(params, NVSDK_NGX_Parameter_Jitter_Offset_X, 0.25f * float((n % 4) - 1.5f));
     NVSDK_NGX_Parameter_SetF(params, NVSDK_NGX_Parameter_Jitter_Offset_Y, 0.2f * float((n % 5) - 2));
     npcmotion::rr::SetGuideView(guide);
     const bool ran = npcmotion::rr::Evaluate(g.list.Get(), params, 1.0f, &matrices);
+    if (base_pass && late_event)
+      for (auto& r : gbuffer) npcmotion::rr::OnBarrier(r.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, kRead);
     g.Submit();
     return ran;
   };
@@ -499,7 +500,7 @@ int wmain(int argc, wchar_t** argv) {
   for (int guide = 1; guide <= 4; ++guide) {
     const bool ran = frame(guide, true, guide == 1, guide);
     Check(ran, std::string("frame ") + std::to_string(guide) + ": Ray Reconstruction ran (" + kGuides[guide] + " shown" +
-                   (guide == 1 ? ", G-buffer still a render target)" : ")"));
+                   (guide == 1 ? ", the G-buffer's barrier event after the evaluation)" : ")"));
     const std::vector<uint32_t> out = ReadBack(g, output.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     for (int p = 0; p < 3; ++p) {
       float got[3], want[3];

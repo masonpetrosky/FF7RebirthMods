@@ -123,7 +123,6 @@ void TraceLine(const std::string& what) {
   if (g_log != nullptr) g_log(0, line);
 }
 
-constexpr uint32_t kNonPixel = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
 constexpr D3D12_RESOURCE_STATES kReadable =
     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
@@ -137,7 +136,7 @@ std::mutex g_gbuffer_mutex;
 ID3D12Resource* g_gbuffer[3] = {};
 DXGI_FORMAT g_gbuffer_format[3] = {};
 std::atomic<ID3D12Resource*> g_tracked[3] = {};  // the same pointers, for OnBarrier without the lock
-std::atomic<uint32_t> g_state[3] = {};           // their latest states (D3D12_RESOURCE_STATES)
+std::atomic<uint32_t> g_state[3] = {};           // their latest states in recording order (for the trace only)
 std::atomic<uint64_t> g_generation{0};
 
 // Everything below is touched under g_mutex: the game evaluates DLSS from one thread, the overlay reads the status.
@@ -434,16 +433,6 @@ DXGI_FORMAT TypedFormat(DXGI_FORMAT format) {
   }
 }
 
-void Transition(ID3D12GraphicsCommandList* list, ID3D12Resource* resource, D3D12_RESOURCE_STATES before,
-                D3D12_RESOURCE_STATES after) {
-  D3D12_RESOURCE_BARRIER b = {};
-  b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-  b.Transition.pResource = resource;
-  b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-  b.Transition.StateBefore = before;
-  b.Transition.StateAfter = after;
-  list->ResourceBarrier(1, &b);
-}
 
 // Writes this evaluation's descriptor set and records the guides pass; `set` is kept for the guide view.
 bool RunGuides(ID3D12GraphicsCommandList* list, ID3D12Resource* output, uint32_t color_width, uint32_t color_height,
@@ -526,17 +515,14 @@ bool RunGuides(ID3D12GraphicsCommandList* list, ID3D12Resource* output, uint32_t
   c.size[0] = width;
   c.size[1] = height;
 
-  // The G-buffer readable by compute shaders: after the lights it usually is; if the game's barriers left it
-  // elsewhere, it goes there and back.
-  D3D12_RESOURCE_STATES states[3];
-  for (int i = 0; i < 3; ++i) {
-    states[i] = static_cast<D3D12_RESOURCE_STATES>(g_state[i].load());
-    if ((states[i] & kNonPixel) == 0) Transition(list, gbuffer[i].Get(), states[i], kReadable);
-  }
+  // No barriers on the G-buffer: when the GPU reaches the game's DLSS call the targets are shader resources (0xC0),
+  // as the game only ever switches them between that and render target (0x4), and its lighting reads them before
+  // DLSS. The states the barrier events report cannot tell that: the game records the base pass on worker threads and
+  // resolves some transitions when it submits, so in recording order its 0x4 -> 0xC0 sometimes comes after the DLSS
+  // call (docs/ray-reconstruction.md, the barrier trace).
   if (g_ran == 0) {
     char line[160];
-    snprintf(line, sizeof(line), "Ray Reconstruction: G-buffer formats %d/%d/%d, states 0x%X/0x%X/0x%X at the evaluation",
-             formats[0], formats[1], formats[2], states[0], states[1], states[2]);
+    snprintf(line, sizeof(line), "Ray Reconstruction: G-buffer formats %d/%d/%d", formats[0], formats[1], formats[2]);
     Log(0, line);
   }
   D3D12_RESOURCE_BARRIER to_uav[3] = {}, to_read[3] = {};
@@ -557,8 +543,6 @@ bool RunGuides(ID3D12GraphicsCommandList* list, ID3D12Resource* output, uint32_t
                                           UINT64(*set) * kSetSize * g_pass.increment});
   list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
   list->ResourceBarrier(3, to_read);
-  for (int i = 0; i < 3; ++i)
-    if ((states[i] & kNonPixel) == 0) Transition(list, gbuffer[i].Get(), kReadable, states[i]);
   return true;
 }
 

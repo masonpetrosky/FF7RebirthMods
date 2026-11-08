@@ -94,6 +94,24 @@ In game, Costa del Sol bar, 2026-11-08 (3cae70f; `captures/rr/2026-11-08-costa-b
   strands, the sword's engraving, a face).
 - Cost: GPU busy 10.74 -> 12.24 ms (+1.5 ms), 72.0 -> 64.5 fps at that spot.
 
+Second session, same spot (1b08a37, the game's nvngx_dlssd.dll replaced by NVIDIA's 310.9.1 with the user's OK, which
+the game's NGX loaded: preset F, DLSS 4.5 Ray Reconstruction; `captures/noise/2026-11-08-costa-bar-rr-f`,
+`captures/perf/2026-11-08-costa-bar-rr-f`):
+
+- Flicker, game's DLSS -> preset F: whole-frame median 0.0012 -> 0.0006; 99th percentile left floor 0.0032 -> 0.0018,
+  wooden floor 0.0040 -> 0.0026, ceiling 0.0077 -> 0.0021 (D left a little less: 0.0012), the back wall and windows
+  behind Cloud 0.0093 -> 0.0061 (D made it worse). The flicker F adds (0.00037) is below the A/A floor (0.00046);
+  D's was above it. Characters are as crisp as with the game's DLSS (Cloud's hair, the sword's engraving, a face),
+  where D was soft.
+- Cost: GPU busy +2.0 ms (D +1.5), 72.0 -> 64.3 fps (the spot is close to CPU-bound).
+- The barrier trace: the base pass is recorded on about ten worker threads; the main (RHI) thread records the
+  G-buffer's transitions (0xC0 -> 0x4 at a frame's start, 0x4 -> 0xC0 after the base pass), the DLSS call and the
+  present. The game's 0x4 -> 0xC0 sometimes comes before the DLSS call and sometimes after it in recording order,
+  so the state seen in recording order is not the state the GPU has at DLSS (the game resolves some transitions when
+  it submits). In one of three traced frames the pass therefore saw 0x4 and issued its own 0x4 -> 0xC0 -> 0x4, which
+  left the targets in the wrong state. The G-buffer only ever alternates between 0x4 and 0xC0 and the lighting reads
+  it before DLSS, so at DLSS it is 0xC0 on the GPU: the fix is to issue no G-buffer barriers at all.
+
 ## Risks
 
 - RR is trained on ray-traced noise. Screen-space noise looks alike per pixel, but its disocclusions differ (P3R mixed
