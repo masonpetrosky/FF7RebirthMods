@@ -1,14 +1,16 @@
 """Checks the Frame Limit add-on in the running game: framelimit_session.py OUT_DIR [--segment S] [--rounds N]
 
 Start it with the game in front, the party standing still and hands off the controls. It records PresentMon for the
-whole run and presses the add-on's ToggleKey to go through its three states in turn, each for S seconds: Limit,
-TestLimit, the game's own limit. The installed FF7RebirthFrameLimit.ini needs ToggleKey, TestLimit and LogStats=1;
-the script reads them from there, and the state the add-on is in from ReShade.log. At the start it takes a ReShade
-screenshot (M6, Page Down) of the measured view.
+whole run and presses the add-on's ToggleKey to go through its states in turn, each for S seconds: Limit, TestLimit
+(if the ini has one) and the game's own limit. The installed FF7RebirthFrameLimit.ini needs a ToggleKey; the script
+reads it, TestLimit and Limit from there, and the state the add-on is in from ReShade.log. At the start it takes a
+ReShade screenshot (M6, Page Down) of the measured view.
 
 Then it prints, per state (the first 1.5 s after each switch left out), the frames shown and rendered per second from
 PresentMon (a rendered frame keeps the GPU busy for milliseconds, a generated one for well under one; the two kinds
-alternate with DLSS Frame Generation) and the add-on's own counts from ReShade.log, and checks:
+alternate with DLSS Frame Generation), how busy the GPU was (near 100% = the GPU is the limit, less = something caps
+it), the share of frames that reached the display sooner than one refresh after the one before (with VSync off: torn
+frames), and the add-on's own counts from ReShade.log if LogStats=1. It checks:
   - TestLimit: frames shown within 1% of TestLimit. Pick one the GPU reaches anywhere, e.g. 100 with frame generation
     (50 rendered).
   - Limit: frames shown never more than 1% above Limit, and within 2% of it if the game's own state showed more.
@@ -34,7 +36,6 @@ INI = os.path.join(GAME_DIR, "FF7RebirthFrameLimit.ini")
 LOG = os.path.join(GAME_DIR, "ReShade.log")
 GAME_OPTION = 119.88  # the game's 120 fps option: t.MaxFPS = 120 x 0.999
 SETTLE = 1.5          # seconds left out after each switch
-STATES = ["limit", "test", "game"]  # the order ToggleKey goes through them
 
 
 def read_ini():
@@ -65,6 +66,11 @@ def current_state(lines):
     return state
 
 
+def display_refresh(lines):
+    rates = [int(m.group(1)) for line in lines for m in [re.search(r"display runs at (\d+) Hz", line)] if m]
+    return rates[-1] if rates and rates[-1] > 1 else 240
+
+
 def log_seconds(line):
     """Seconds since midnight of a ReShade.log line (HH:MM:SS:mmm)."""
     m = re.match(r"(\d\d):(\d\d):(\d\d):(\d\d\d)", line)
@@ -90,15 +96,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("out_dir")
     parser.add_argument("--segment", type=float, default=10.0, help="seconds per state (default 10)")
-    parser.add_argument("--rounds", type=int, default=2, help="rounds through the three states (default 2)")
+    parser.add_argument("--rounds", type=int, default=2, help="rounds through the states (default 2)")
     args = parser.parse_args()
 
     if not game_running():
         sys.exit(f"{GAME} is not running")
     ini = read_ini()
     key, test_limit, limit = ini.get("ToggleKey", 0), ini.get("TestLimit", 0), ini.get("Limit", -1)
-    if key == 0 or test_limit <= 0 or ini.get("LogStats", 0) == 0:
-        sys.exit(f"{INI} needs ToggleKey, TestLimit and LogStats=1 (has {ini})")
+    if key == 0:
+        sys.exit(f"{INI} needs a ToggleKey (has {ini})")
+    states = ["limit", "test", "game"] if test_limit > 0 else ["limit", "game"]  # the order ToggleKey goes through
     extended = 0x21 <= key <= 0x2E  # the navigation keys
     state = current_state(log_lines())
     if state is None:
@@ -108,7 +115,7 @@ def main():
     print("Waiting for the game to be in front...", flush=True)
     while not game_in_front():
         time.sleep(0.25)
-    total = args.segment * 3 * args.rounds + 15
+    total = args.segment * len(states) * args.rounds + 15
     print(f"Starting in 5 s; about {total / 60:.1f} minutes with hands off the controls.", flush=True)
     time.sleep(5.0)
 
@@ -123,7 +130,7 @@ def main():
         if not tap(key, extended, 600):
             raise RuntimeError("the game left the front")
         timeline["presses"].append(qpc())
-        state = STATES[(STATES.index(state) + 1) % 3]
+        state = states[(states.index(state) + 1) % len(states)]
         time.sleep(0.3)
 
     try:
@@ -133,7 +140,7 @@ def main():
         while state != "limit":
             press()
         for _ in range(args.rounds):
-            for expected in STATES:
+            for expected in states:
                 start, wall = qpc(), time.time()
                 print(f"  {expected:6s}", end="", flush=True)
                 time.sleep(args.segment)
@@ -143,7 +150,7 @@ def main():
                 press()
     finally:
         presses = 0
-        while state != "limit" and presses < 3:  # leave it on Limit
+        while state != "limit" and presses < len(states):  # leave it on Limit
             try:
                 press()
             except RuntimeError:
@@ -172,13 +179,18 @@ def report(out_dir, timeline, lines, limit, test_limit):
     with open(os.path.join(out_dir, "presentmon.csv"), encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             if r["Application"].lower() == GAME:
-                rows.append((int(r["TimeInQPC"]), number(r["MsGPUBusy"]), number(r["MsBetweenDisplayChange"])))
+                rows.append((int(r["TimeInQPC"]), number(r["MsGPUBusy"]), number(r["MsBetweenDisplayChange"]),
+                             r["PresentMode"], r["AllowsTearing"]))
     rows.sort()
-    if limit < 0:  # 3 below the display's refresh rate: the add-on logs the rate
-        rates = [int(m.group(1)) for line in lines for m in [re.search(r"display runs at (\d+) Hz", line)] if m]
-        limit = rates[-1] - 3 if rates and rates[-1] > 3 else 0
-    results = {s: [] for s in STATES}
-    print(f"\n{'state':6s} {'shown':>7s} {'rendered':>9s} {'ratio':>6s}  {'display p1/p50/p99 ms':>22s}   add-on")
+    refresh_ms = 1000.0 / display_refresh(lines)
+    if limit < 0:  # 3 below the display's refresh rate
+        limit = display_refresh(lines) - 3
+    states = sorted({seg["state"] for seg in timeline["segments"]}, key=["limit", "test", "game"].index)
+    results = {s: [] for s in states}
+    modes = sorted({(r[3], r[4]) for r in rows})
+    print("\npresent modes (mode, tearing allowed):", ", ".join(f"{m} {t}" for m, t in modes))
+    print(f"{'state':6s} {'shown':>7s} {'rendered':>9s} {'ratio':>6s} {'GPU':>5s} {'early':>6s}  "
+          f"{'display p1/p50/p99 ms':>22s}   add-on")
     for seg in timeline["segments"]:
         a, b = seg["start"] + int(SETTLE * freq), seg["end"]
         seconds = (b - a) / freq
@@ -187,7 +199,9 @@ def report(out_dir, timeline, lines, limit, test_limit):
         shown = len(inside) / seconds
         rendered_fps = rendered / seconds
         ratio = shown / rendered_fps if rendered_fps else 0.0
+        busy = sum(r[1] for r in inside if r[1] is not None) / 1000.0 / seconds
         display = sorted(r[2] for r in inside if r[2] is not None and r[2] > 0)
+        early = sum(1 for x in display if x < refresh_ms - 0.2) / max(1, len(display))
         pct = (lambda p: display[min(len(display) - 1, int(p * len(display)))]) if display else (lambda p: 0.0)
         w0, w1 = seconds_of_day(seg["wall_start"] + SETTLE), seconds_of_day(seg["wall_end"])
         stats = [line for line in lines if "Shown " in line and (t := log_seconds(line)) is not None and w0 <= t <= w1 + 0.5]
@@ -197,19 +211,21 @@ def report(out_dir, timeline, lines, limit, test_limit):
             if m:
                 addon = f"shown {m.group(1)}, rendered {m.group(2)}, {m.group(3)} per frame, limit {m.group(4)}"
         results[seg["state"]].append((shown, rendered_fps, ratio))
-        print(f"{seg['state']:6s} {shown:7.1f} {rendered_fps:9.1f} {ratio:6.2f}  "
+        print(f"{seg['state']:6s} {shown:7.1f} {rendered_fps:9.1f} {ratio:6.2f} {100 * busy:4.0f}% {100 * early:5.0f}%  "
               f"{pct(0.01):6.2f} {pct(0.5):6.2f} {pct(0.99):6.2f}   {addon}")
+    print(f"('early' = frames that reached the display sooner than one refresh, {refresh_ms:.2f} ms, after the one "
+          f"before)")
 
     checks = []
     def check(ok, text):
         checks.append(ok)
         print(f"{'PASS' if ok else 'FAIL'}: {text}")
     print()
-    for shown, rendered, ratio in results["test"]:
+    for shown, rendered, ratio in results.get("test", []):
         check(abs(shown - test_limit) <= 0.01 * test_limit, f"TestLimit {test_limit}: {shown:.1f} shown")
-    game_shown = max((s for s, _, _ in results["game"]), default=0.0)
-    game_rendered = max((r for _, r, _ in results["game"]), default=0.0)
-    for shown, rendered, ratio in results["limit"]:
+    game_shown = max((s for s, _, _ in results.get("game", [])), default=0.0)
+    game_rendered = max((r for _, r, _ in results.get("game", [])), default=0.0)
+    for shown, rendered, ratio in results.get("limit", []):
         check(shown <= 1.01 * limit, f"Limit {limit}: {shown:.1f} shown, not above")
         if game_shown > limit:
             check(shown >= 0.98 * limit, f"Limit {limit}: {shown:.1f} shown reaches it (the game's state showed {game_shown:.1f})")
@@ -217,9 +233,9 @@ def report(out_dir, timeline, lines, limit, test_limit):
             check(rendered > 1.02 * GAME_OPTION or shown >= 0.98 * limit,
                   f"Limit {limit}: {rendered:.1f} rendered, {shown:.1f} shown: past the game's {GAME_OPTION} "
                   f"rendered or at the limit")
-    for shown, rendered, ratio in results["game"]:
+    for shown, rendered, ratio in results.get("game", []):
         check(rendered <= 1.01 * GAME_OPTION, f"the game's limit: {rendered:.1f} rendered, at most {GAME_OPTION}")
-    for state in STATES:
+    for state in states:
         for shown, rendered, ratio in results[state]:
             whole = round(ratio)
             check(whole >= 1 and abs(ratio - whole) <= 0.02 * whole,

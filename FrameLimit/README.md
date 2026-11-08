@@ -64,6 +64,11 @@ app, G-SYNC is on and Reflex runs (frame generation turns Reflex on), a little b
 decides above that cap, for example with V-Sync off. Frame pacing under a limit is the same as under the game's own:
 the add-on changes the value Unreal waits for, not the wait.
 
+With V-Sync off in the NVIDIA app (same view, DLSS-G on), the limit holds: 236.9 shown from 118.5 rendered (GPU 92-93%
+busy), against 240.0 shown from 120.0 rendered (94%) under the game's 120 option, right at the display's refresh rate.
+PresentMon cannot tell whether frames tear here: with frame generation its display times put a fifth to a third of the
+frames less than one refresh after the one before, with V-Sync on (where nothing can tear) as much as with it off.
+
 ## Installation
 
 Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in
