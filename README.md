@@ -10,7 +10,7 @@ FF7RebirthAnisotropic, FF7RebirthTextureUpscaler, all archived).
 | [Vegetation and Hair Fix](VegetationAndHairFix) | Removes the grainy dithering on foliage under DLSS, DLAA and FSR, and gives hair and fur soft edges | 0.3.1 | [2443](https://www.nexusmods.com/finalfantasy7rebirth/mods/2443) |
 | [NPC Motion](NpcMotion) | Fixes the stale motion vectors that smear crowds under DLSS, plus DLSS settings checked against NVIDIA's guide | 0.2.0 | [2441](https://www.nexusmods.com/finalfantasy7rebirth/mods/2441) |
 | [Anisotropic Filtering](Anisotropic) | 16x anisotropic filtering instead of the game's fixed 4x | 0.1.0 | [2442](https://www.nexusmods.com/finalfantasy7rebirth/mods/2442) |
-| [Frame Limit](FrameLimit) | Replaces the game's 30/60/90/120 limit on rendered frames with one limit on the frames the display shows, frame generation included (3 below the refresh rate by default) | not released | |
+| [Frame Limit](FrameLimit) | Replaces the game's 30/60/90/120 limit on rendered frames with one limit on the frames the display shows, frame generation included (3 below the refresh rate by default), and NVIDIA Reflex without frame generation | 0.1.0 | coming |
 | [Texture Upscaler](TextureUpscaler) | AI texture upscaling that builds a `~mods` package from your own install | source only | [2440](https://www.nexusmods.com/finalfantasy7rebirth/mods/2440) |
 | [Shader Injector Sync](ShaderInjectorSync) | Holds the game at startup until Shader Injector has hooked Direct3D 12, so quick relaunches keep its shaders | not released | |
 
