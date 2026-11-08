@@ -211,6 +211,12 @@ slot 5) and waits itself unless one returns true. The game's one handler, `FStre
 object, vtable `0x5B127C8`, slot 5 = `0x2E8EED4`), ignores the rate: it builds `sl::ReflexOptions` with
 `frameLimitUs = 0` (`mov dword [rsp+0x4C], 0`, virtual key 0x7C), sets them, runs Reflex's sleep and returns false. So
 Unreal's own sleep-and-spin wait enforces `t.MaxFPS`, once per game frame: rendered frames only.
+Reflex is on only while DLSS frame generation is: the mode it gets is `0x2E8F50C()` ? Low Latency : Off (never Boost),
+and `0x2E8F50C` is "DLSS-G available (`0x6EF8A28`, from `slReflexGetState` at startup) and enabled (`0x6EF8A2A`, 0 in
+the file)". The only writer of the enabled flag is slot 2 of `FStreamlineDLSSFGExternalMethod` (vtable `0x5B12808`, the
+static object `0x6EF8A38`, which the game keeps in `0x91D8680`), and the renderer calls it every frame with
+`r.FrameGeneration.Method != 0` (`0x82B477`-`0x82B494`). The graphics settings set slot 4 (`0x6EF8A2C`) to
+max(1, settings +0x381) at the same time. The game has no Reflex option and no Streamline console variables.
 `GetMaxTickRate` reads `t.MaxFPS` at `0x155BEAA` (`mov rax, [TAutoConsoleVariable 0x90BF990 + 0x10]`, then
 `vmovss xmm1, [rax + r9*4]`) and uses it whenever it is above 0 (`vcmpltss` + `vblendvps`), in place of the smoothed
 rate (`bSmoothFrameRate=false` in the game's `BaseEngine.ini`, so 0 is no limit at all). The only other read is the
