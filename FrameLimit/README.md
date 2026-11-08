@@ -2,7 +2,8 @@
 
 A [ReShade](https://reshade.me) add-on for **FINAL FANTASY VII REBIRTH** (PC) that replaces the game's frame-rate limit,
 which counts rendered frames only and stops at 120, with one limit on the frames the display shows, the ones frame
-generation makes included. By default that is 3 below the display's refresh rate: 237 at 240 Hz.
+generation makes included. By default that is 3 below the display's refresh rate: 237 at 240 Hz. It also keeps
+**NVIDIA Reflex** on when frame generation is off, which the game doesn't do.
 
 ## The problem
 
@@ -99,8 +100,19 @@ off (one frame shown per frame rendered in every state).
 
 ## Installation
 
-Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in
-`...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`, next to ReShade 6.x with add-on support. To uninstall, delete both.
+Extract the zip into `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`, next to ReShade 6.x with add-on support:
+`FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` go there. To uninstall, delete both.
+
+## Compatibility
+
+- Tested with game build 23447986 (Steam, October 2026), ReShade 6.8.0 and an RTX 5070 Ti.
+- Works next to the other add-ons in this repository, RenoDX HDR and Shader Injector.
+- The frame limit works on any GPU. Without NVIDIA's Streamline (AMD, Intel), the shown frames per rendered frame
+  follow the game's frame generation setting; Reflex needs an NVIDIA GPU.
+- Use one frame-rate unlocker at a time: another mod that changes the game's limit (for example a custom cap in
+  another fix) and this add-on would both decide.
+- If a game update moves the code the add-on looks for, it changes nothing and says so in `ReShade.log` and the
+  overlay; the game then keeps its own limit and Reflex behaviour.
 
 ## Settings
 
@@ -110,14 +122,15 @@ Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in
 | --- | --- | --- |
 | `Limit` | -1 | Frames per second the display shows, generated frames included. -1 = 3 below the refresh rate of the display the game is on; 0 = no limit. |
 | `Enabled` | 1 | 1 = use `Limit`, 0 = the game's own frame-rate option. |
-| `ToggleKey` | 0 | Virtual-key code that switches between `Limit` and the game's own limit for the session (121 = F10). |
+| `ToggleKey` | 0 | Virtual-key code that switches between `Limit` and the game's own limit for the session (33 = Page Up). |
 | `TestLimit` | 0 | Testing: a second limit that `ToggleKey` also switches to (`Limit`, `TestLimit`, the game's). |
 | `LogStats` | 0 | 1 = write the measured frame rates and the limit in use to `ReShade.log` every 5 seconds. |
 | `Reflex` | 1 | 1 = NVIDIA Reflex on also without frame generation, 0 = the game's (on only with frame generation). |
 | `ReflexKey` | 0 | Virtual-key code that switches `Reflex` for the session, for comparisons. |
 
 The overlay's Add-ons tab shows the frame rates it measures (shown and rendered), the shown frames per rendered frame,
-the limit in use and the game's own option, and has a checkbox for the limit and a slider for `Limit`, which saves it.
+the limit in use, the game's own option, Reflex's state and the driver's report. It has checkboxes for the limit and
+for Reflex (for the session) and a slider for `Limit`, which saves it.
 
 ## Building
 
