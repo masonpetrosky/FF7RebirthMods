@@ -43,6 +43,27 @@ VSync waits for one refresh, not two. (With frame generation on, the game turns 
 Without the Streamline handler (another GPU vendor, or a game version where it is not found), the shown frames per
 rendered frame follow the game's frame generation setting (`r.FrameGeneration.Method`): 2 when it is on.
 
+## Measured
+
+2026-11-08, RTX 5070 Ti, 4K 240 Hz G-SYNC display with V-Sync forced in the NVIDIA app, the camera on the sky so the
+GPU can go fast, PresentMon over two rounds of 8 s per state (`tools/framelimit_session.py`, all checks passed):
+
+| Frame generation | State | Shown fps | Rendered fps | GPU busy |
+| --- | --- | --- | --- | --- |
+| off | the game's 120 option | 119.8 | 119.8 | 72% |
+| off | Limit 237 | 175.4 | 175.4 | 100% (the GPU's limit in that view) |
+| off | TestLimit 100 | 100.0 | 100.0 | 60% |
+| DLSS-G | the game's 120 option | 224.6 | 112.3 | 91% |
+| DLSS-G | Limit 237 | 224.9 | 112.5 | 91% |
+| DLSS-G | TestLimit 100 | 100.0 | 50.0 | 41% |
+
+The add-on counted 2 shown frames per rendered frame within 2 s of frame generation being switched on. With frame
+generation, neither limit was reached (112.5 rendered is below both 118.5 and 119.88) and the GPU had 9% to spare:
+NVIDIA's driver held the shown frames at about 225 itself. It does that while V-Sync is forced in its control panel or
+app, G-SYNC is on and Reflex runs (frame generation turns Reflex on), a little below the refresh rate. `Limit` only
+decides above that cap, for example with V-Sync off. Frame pacing under a limit is the same as under the game's own:
+the add-on changes the value Unreal waits for, not the wait.
+
 ## Installation
 
 Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in

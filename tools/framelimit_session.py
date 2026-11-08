@@ -208,10 +208,15 @@ def report(out_dir, timeline, lines, limit, test_limit):
     for shown, rendered, ratio in results["test"]:
         check(abs(shown - test_limit) <= 0.01 * test_limit, f"TestLimit {test_limit}: {shown:.1f} shown")
     game_shown = max((s for s, _, _ in results["game"]), default=0.0)
+    game_rendered = max((r for _, r, _ in results["game"]), default=0.0)
     for shown, rendered, ratio in results["limit"]:
         check(shown <= 1.01 * limit, f"Limit {limit}: {shown:.1f} shown, not above")
         if game_shown > limit:
             check(shown >= 0.98 * limit, f"Limit {limit}: {shown:.1f} shown reaches it (the game's state showed {game_shown:.1f})")
+        if game_rendered >= 0.97 * GAME_OPTION:  # the game's own limit held it back, so the GPU could go faster
+            check(rendered > 1.02 * GAME_OPTION or shown >= 0.98 * limit,
+                  f"Limit {limit}: {rendered:.1f} rendered, {shown:.1f} shown: past the game's {GAME_OPTION} "
+                  f"rendered or at the limit")
     for shown, rendered, ratio in results["game"]:
         check(rendered <= 1.01 * GAME_OPTION, f"the game's limit: {rendered:.1f} rendered, at most {GAME_OPTION}")
     for state in STATES:

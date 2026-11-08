@@ -218,7 +218,12 @@ virtual `UEngine::GetMaxFPS` (`0x9C9DE8`). The read-back `0x10BC030` (called at 
 from `0xFE76A4`, `0x10BA7E4`) maps `t.MaxFPS` back to a mode and calls the apply function with it. A value a mod
 writes into `t.MaxFPS` (none of the four) becomes mode 0 there with the game's VSync off (`t.MaxFPS` 0), and with it on
 the 60 or 30 fps VSync mode, picked by `rhi.SyncInterval` (1 or 2). The Frame Limit add-on (`FrameLimit/`) therefore
-redirects the load at `0x155BEAA` instead and leaves `t.MaxFPS` to the game.
+redirects the load at `0x155BEAA` instead and leaves `t.MaxFPS` to the game. In game it works as designed: during the
+first load screen the game rendered 189 and 236 fps while its own value was 119.88, and at a sky view without frame
+generation it rendered 175 (the GPU's limit there) against 119.8 under the game's limit; with DLSS-G it counted 2
+shown frames per rendered frame and held a 100 fps test limit at 100.0 shown from 50.0 rendered (`FrameLimit/README.md`
+"Measured"). With DLSS-G, NVIDIA's driver itself held the shown frames at about 225 (V-Sync forced in the NVIDIA app,
+G-SYNC, Reflex), below the 120 option's 240 and below the add-on's 237.
 
 No config file the game ships sets `t.MaxFPS` (the device profiles only set streaming, MassiveEnvironment, D3D12 and
 dynamic resolution variables). In Unreal, `t.MaxFPS` under `[SystemSettings]` in the user's

@@ -59,7 +59,11 @@ relative to the repository root unless the doc says otherwise.
   (NPC Motion also looks in the Vegetation and Hair Fix folder). Shader Injector hooks ReShade's D3D12 wrappers, and
   its dummy D3D12 device is the game's own on a one-GPU PC, so no extra device events reach the add-ons.
 - Performance: `tools/perf_session.py <out>` (game in front, party standing still) records PresentMon and toggles
-  each mod by its key; `.\build.ps1 cpu_sampler` first for its CPU profile. Results go to `captures\perf\`. Measured
+  each mod by its key; `.\build.ps1 cpu_sampler` first for its CPU profile. Results go to `captures\perf\`.
+  `tools/framelimit_session.py <out>` checks the Frame Limit add-on the same way. Check PresentMon's `PresentMode` is
+  `Hardware: Independent Flip` before trusting frame pacing: on 2026-11-08 Dell Display and Peripheral Manager's
+  invisible topmost `EAWorkWindow` (Easy Arrange) made it `Composed: Flip`, which turns G-SYNC off (frames only on
+  whole refreshes). Measured
   2026-10-31 at a Grasslands spot (4K, DLSS Performance): GPU-bound at 63 fps; Shader Injector costs 1.7 ms of the
   15.8 ms frame, soft edges 0.1 ms, the NPC Motion fix nothing, and the Vegetation and Hair Fix saves 0.3 ms (a cutout
   draws faster than the dithering). NPC Motion's descriptor mirror takes 13% of the RHIThread (`NpcMotion/docs/recon.md`).
