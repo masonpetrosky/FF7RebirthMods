@@ -69,6 +69,31 @@ Stage 1, development build, one game session at the Costa del Sol bar (install n
 Stage 2: user-facing setting and defaults from stage 1, docs (README, shipped ini, release notes), release with the
 user's OK.
 
+## Results so far
+
+Offline (`tests/rr_test.cpp`, RTX 5070 Ti, 2026-11-08): every check passes with the game's nvngx_dlssd.dll 310.3.0
+(default preset D) and with the driver's built-in 310.9.0 (`--dlss-folder-only`, default preset F, "RR2" = DLSS 4.5
+Ray Reconstruction).
+
+In game, Costa del Sol bar, 2026-11-08 (3cae70f; `captures/rr/2026-11-08-costa-bar-guides`,
+`captures/noise/2026-11-08-costa-bar-rr`, `captures/perf/2026-11-08-costa-bar-rr`):
+
+- The game's NGX loads the game's own `nvngx_dlssd.dll` 310.3.0 from its Streamline folder, so NVIDIA's default is
+  preset D (DLSS 4's first transformer), not F. Preset F needs a 310.9 or newer nvngx_dlssd.dll where the game's NGX
+  looks, or NVIDIA's own override.
+- The base pass binds 7 targets: scene colour RGBA16F, GBufferA R10G10B10A2, B and C BGRA8 (C sRGB), D and E BGRA8,
+  velocity R16G16_UNORM: Unreal's order, recognised as intended. The guides look right on screen (base colours,
+  normals, roughness, metals' specular).
+- Open: at the first evaluation the G-buffer was still tracked as a render target (0x4): no transition to a shader
+  resource state reached OnBarrier after the base pass. Either the game's barriers don't reach it, or the targets are
+  bound again later in the frame. The guides read correctly anyway; to be checked with a barrier log before release.
+- RR ran every frame, no fallbacks, view matrices read (ViewToClip 1.732 / 3.079: 60 degrees at 16:9).
+- Flicker (temporal deviation of PQ luminance, the calmer of two windows per state): whole-frame median 0.0011 ->
+  0.0005; 99th percentile on the left floor 0.0033 -> 0.0012, the wooden floor 0.0042 -> 0.0012, the ceiling 0.0072 ->
+  0.0012. Characters (all animated, so partly motion) flicker more with RR, and RR is visibly softer on them (hair
+  strands, the sword's engraving, a face).
+- Cost: GPU busy 10.74 -> 12.24 ms (+1.5 ms), 72.0 -> 64.5 fps at that spot.
+
 ## Risks
 
 - RR is trained on ray-traced noise. Screen-space noise looks alike per pixel, but its disocclusions differ (P3R mixed
