@@ -258,7 +258,7 @@ def report(out_dir, timeline, lines, limit, test_limit, switch="limit"):
         driver = [(log_seconds(line), "low latency mode on" in line) for line in lines if "] NVIDIA driver: Reflex" in line]
         frame_gen = any(round(r) >= 2 for s in states for _, _, r, _ in results[s])  # then the game runs Reflex too
         for seg in timeline["segments"]:
-            end = seconds_of_day(seg["wall_end"]) + 0.5
+            end = seconds_of_day(seg["wall_end"])  # the next switch follows right after: no margin past the end
             last = [on_ for t, on_ in driver if t is not None and t <= end]
             want = seg["state"] == "reflex" or frame_gen
             check(bool(last) and last[-1] == want,

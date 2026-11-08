@@ -84,6 +84,19 @@ busy), against 240.0 shown from 120.0 rendered (94%) under the game's 120 option
 PresentMon cannot tell whether frames tear here: with frame generation its display times put a fifth to a third of the
 frames less than one refresh after the one before, with V-Sync on (where nothing can tear) as much as with it off.
 
+Reflex without frame generation (same view, frame generation off, V-Sync forced on and G-SYNC active as the driver
+reported, `ReflexKey` switching every 8 s, PresentMon's PC latency from Reflex's own markers,
+`tools/framelimit_session.py --switch reflex`, all checks passed):
+
+| Reflex | Shown fps | GPU busy | PC latency median | Driver: low latency mode |
+| --- | --- | --- | --- | --- |
+| kept on by the add-on | 169.2, 170.8 | 99-100% | 15.6, 15.8 ms | on |
+| the game's (off) | 173.2, 172.8 | 100% | 23.6, 24.0 ms | off |
+
+Kept on, Reflex takes about 8 ms (a third) off the time from the simulation's start to the frame on the screen, for
+about 2% of the frame rate, and the driver's own report followed each switch within a second. Frame generation stayed
+off (one frame shown per frame rendered in every state).
+
 ## Installation
 
 Put `FF7RebirthFrameLimit.addon64` and `FF7RebirthFrameLimit.ini` in
