@@ -371,8 +371,12 @@ int wmain(int argc, wchar_t** argv) {
            rr_available() ? "AVAILABLE" : "not available (the game would need nvngx_dlssd.dll there)");
     NVSDK_NGX_D3D12_Shutdown1(g.device.Get());
   }
-  result = init(2);
-  Check(NVSDK_NGX_SUCCEED(result), "NGX initialised with the game's DLSS and Streamline folders");
+  // --dlss-folder-only: the rest with only the game's DLSS folder too, as the game's own NGX has it, so Ray
+  // Reconstruction comes from wherever NGX finds it then (NGX's log names the DLL and the preset it picks).
+  const bool dlss_folder_only = argc > 3 && std::wstring(argv[3]) == L"--dlss-folder-only";
+  result = init(dlss_folder_only ? 1 : 2);
+  Check(NVSDK_NGX_SUCCEED(result), dlss_folder_only ? "NGX initialised with only the game's DLSS folder"
+                                                    : "NGX initialised with the game's DLSS and Streamline folders");
   Check(rr_available(), "Ray Reconstruction available");
   if (g_failures != 0) return 1;
 
