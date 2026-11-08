@@ -33,10 +33,12 @@ relative to the repository root unless the doc says otherwise.
 - Releasing a mod: bump `project(... VERSION)` in its `CMakeLists.txt`, rewrite its `docs/release-notes.md`, commit,
   tag `<Mod>-v<version>` and push the tag; CI builds the zip and creates the GitHub release. Nexus uploads are
   separate and need the user's OK per action. The Nexus pages' "GitHub" download mirror points at the mod's release
-  here (`releases/tag/<Mod>-v<version>`; `releases/latest` would be whichever mod released last), for all three
-  add-ons since 2026-11-07: NPC Motion 0.2.0, Vegetation and Hair Fix 0.3.1 and Anisotropic 0.1.0 (published here
-  that day with the same zip as its former repository's release, not marked latest; Vegetation and Hair Fix 0.3.0
-  likewise). Move the mirror at every release.
+  here (`releases/tag/<Mod>-v<version>`; `releases/latest` would be whichever mod released last), for every
+  add-on on Nexus: Frame Limit 0.1.0 (Nexus 2498, 2026-11-08) and, since 2026-11-07, NPC Motion 0.2.0, Vegetation
+  and Hair Fix 0.3.1 and Anisotropic 0.1.0 (published here that day with the same zip as its former repository's
+  release, not marked latest; Vegetation and Hair Fix 0.3.0 likewise). Move the mirror at every release. Nexus's
+  Cloudflare check refuses some editor saves from an automated browser tab (media, requirements and mirrors,
+  changelogs: 403 "Just a moment..."); those steps go to the user.
 
 ## Working on the game
 
