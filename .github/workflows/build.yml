@@ -21,7 +21,7 @@ jobs:
 
       - name: Build and package every add-on
         shell: pwsh
-        run: foreach ($mod in 'Anisotropic', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix') { ./package.ps1 -Mod $mod }
+        run: foreach ($mod in 'Anisotropic', 'FrameLimit', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix') { ./package.ps1 -Mod $mod }
 
       - name: Upload packages
         uses: actions/upload-artifact@v4

@@ -1,7 +1,7 @@
 # Builds the add-ons and assembles one mod's release zip in dist\, e.g. .\package.ps1 NpcMotion.
 # The version defaults to the one in <Mod>\CMakeLists.txt.
 param(
-  [Parameter(Mandatory)][ValidateSet('Anisotropic', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix')]
+  [Parameter(Mandatory)][ValidateSet('Anisotropic', 'FrameLimit', 'NpcMotion', 'ShaderInjectorSync', 'VegetationAndHairFix')]
   [string]$Mod,
   [string]$Version = '')
 $ErrorActionPreference = 'Stop'

@@ -10,6 +10,7 @@ them at once. Each mod still ships on its own (its own zip, Nexus page and relea
 | `VegetationAndHairFix/` | ReShade add-on: undithered foliage, soft-edged hair and fur | `FF7RebirthVegetationAndHairFix.addon64` + `.ini` + folder with `dxcompiler.dll` |
 | `NpcMotion/` | ReShade add-on: NPC motion vectors, DLSS settings; `docs/recon.md` is the main investigation log of the game's renderer | `FF7RebirthNpcMotion.addon64` + `.ini` + folder with `dxcompiler.dll` |
 | `Anisotropic/` | ReShade add-on: 16x anisotropic filtering | `FF7RebirthAnisotropic.addon64` + `.ini` |
+| `FrameLimit/` | ReShade add-on: one limit on the frames the display shows (frame generation included) instead of the game's 30-120 on rendered frames | `FF7RebirthFrameLimit.addon64` + `.ini` |
 | `ShaderInjectorSync/` | ReShade add-on: holds startup until Shader Injector has hooked D3D12 | `FF7RebirthShaderInjectorSync.addon64` + `.ini` |
 | `TextureUpscaler/` | Python: AI texture upscaling into a `~mods` IoStore package (its own `.venv`, `bin/`, `models/`, `work/`, all git-ignored) | `FF7RebirthTextureUpscaler_P.pak/.ucas/.utoc` in `Paks\~mods` |
 | `third_party/` | ReShade and Dear ImGui headers, DXIL hash (DXC); one copy for every add-on | |
@@ -49,7 +50,8 @@ relative to the repository root unless the doc says otherwise.
   (`d3d12.dll`) on 2026-10-30; its log is `AppData\Local\Programs\SCSKiller\data\app.log`.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, Insert/Delete = Shader Injector menu
   and toggle, F3 and F11 = the game (F11 toggles windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation
-  and Hair Fix (set in the installed ini; the shipped ini has no keys). Check this list before adding a key.
+  and Hair Fix (set in the installed ini; the shipped ini has no keys), Page Up = Frame Limit (installed ini only).
+  Avoid F10, which Windows treats as the menu key. Check this list before adding a key.
 - RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.46 with every hook DLL switched off for the
   session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library
   assert. Captures land in `captures\`. `tools/rdc.sh <script>` runs a capture script headless.
