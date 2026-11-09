@@ -50,8 +50,8 @@ relative to the repository root unless the doc says otherwise.
   Injector (`dsound.dll`, `ShaderInjector\`) and our Shader Injector Sync were removed on 2026-11-08 at the user's
   OK; our own ray tracing (`..\FF7RebirthRayTracing`) replaces its lighting, and the files are in
   `..\..\Backups\FF7Rebirth\2026-11-08-before-removing-shader-injector\`. While it was installed its dummy swap chain
-  made the game window read `ReShade2.ini`; without it the window should read `ReShade.ini` again (same ReShade
-  settings, plus add-on settings such as RenoDX's): check ReShade.log at the next start. SCSKiller removed its
+  made the game window read `ReShade2.ini`; without it the window reads `ReShade.ini` again (ReShade.log, 2026-11-08
+  20:05), which holds the same ReShade settings plus the add-ons' (RenoDX's peak 1000 nits). SCSKiller removed its
   recorder (`d3d12.dll`) on 2026-10-30; its log is `AppData\Local\Programs\SCSKiller\data\app.log`.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, F3 and F11 = the game (F11 toggles
   windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation and Hair Fix (set in the installed ini; the
