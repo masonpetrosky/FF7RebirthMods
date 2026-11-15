@@ -116,7 +116,7 @@ Extract the zip into `...\FINAL FANTASY VII REBIRTH\End\Binaries\Win64`, next to
 
 ## Settings
 
-`FF7RebirthFrameLimit.ini`:
+`FF7RebirthFrameLimit.ini` (the keys work while the game's window is in front and neither Alt nor Ctrl is held):
 
 | Key | Default | Meaning |
 | --- | --- | --- |

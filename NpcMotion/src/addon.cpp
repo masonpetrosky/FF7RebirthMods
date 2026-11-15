@@ -38,6 +38,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/addon.hpp"
+#include "common/game_code.hpp"
 #include "descriptors.hpp"
 #include "dlss_probe.hpp"
 #include "ray_reconstruction.hpp"
@@ -63,7 +65,6 @@ const char* const kViewVariables[5] = {"View_TemporalAAJitter", "View_TemporalAA
 const char* const kViewMatrices[2] = {"View_TranslatedWorldToView", "View_ViewToClip"};
 constexpr char kPreviousBones[] = "PreviousBoneMatrices";
 
-fs::path g_ini_path;
 std::atomic<bool> g_enabled{true};
 int g_toggle_key = 0;  // virtual-key code, 0 = none
 bool g_log_stats = false;
@@ -181,34 +182,16 @@ struct __declspec(uuid("9b5d3c21-7e64-4f0a-8c1d-2a6e9f4b7d38")) CommandListData 
 std::atomic<uint64_t> g_presents{0};
 int g_probe_key = 0;
 
-void Log(reshade::log::level level, const std::string& message) {
-  reshade::log::message(level, ("[NpcMotion] " + message).c_str());
-}
+using ff7r::KeyPressed;
+using ff7r::Log;
+using ff7r::ReadIniFloat;
+using ff7r::ReadIniInt;
+using ff7r::WriteIniFloat;
+using ff7r::WriteIniInt;
+namespace code = ff7r::game_code;
 
 // ---------------------------------------------------------------------------------------------
 // Configuration
-
-int ReadIniInt(const wchar_t* key, int fallback) {
-  return static_cast<int>(GetPrivateProfileIntW(L"NpcMotion", key, fallback, g_ini_path.c_str()));
-}
-
-void WriteIniInt(const wchar_t* key, int value) {
-  WritePrivateProfileStringW(L"NpcMotion", key, std::to_wstring(value).c_str(), g_ini_path.c_str());
-}
-
-float ReadIniFloat(const wchar_t* key, float fallback) {
-  wchar_t text[32] = {};
-  GetPrivateProfileStringW(L"NpcMotion", key, L"", text, 32, g_ini_path.c_str());
-  wchar_t* end = nullptr;
-  const float value = wcstof(text, &end);
-  return end != text && std::isfinite(value) ? value : fallback;
-}
-
-void WriteIniFloat(const wchar_t* key, float value) {
-  wchar_t text[32];
-  swprintf(text, 32, L"%.2f", value);
-  WritePrivateProfileStringW(L"NpcMotion", key, text, g_ini_path.c_str());
-}
 
 void SetEnabled(bool enabled) {
   g_enabled = enabled;
@@ -219,90 +202,9 @@ void SetEnabled(bool enabled) {
 // ---------------------------------------------------------------------------------------------
 // Console variables: animation budget, jitter sequence, texture mip bias
 
-// The game's executable: its code and its read-only data.
-struct Image {
-  uint8_t* text = nullptr;
-  size_t text_size = 0;
-  const uint8_t* rdata = nullptr;
-  size_t rdata_size = 0;
-  bool InText(const void* p, size_t bytes) const {
-    return p >= text && static_cast<const uint8_t*>(p) + bytes <= text + text_size;
-  }
-};
-
-const Image& GameImage() {
-  static const Image image = [] {
-    Image result;
-    auto* const base = reinterpret_cast<uint8_t*>(GetModuleHandleW(nullptr));
-    const auto* nt =
-        reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
-    const IMAGE_SECTION_HEADER* sections = IMAGE_FIRST_SECTION(nt);
-    for (int i = 0; i < nt->FileHeader.NumberOfSections; ++i) {
-      const char* section = reinterpret_cast<const char*>(sections[i].Name);
-      if (strncmp(section, ".text", 8) == 0)
-        result.text = base + sections[i].VirtualAddress, result.text_size = sections[i].Misc.VirtualSize;
-      if (strncmp(section, ".rdata", 8) == 0)
-        result.rdata = base + sections[i].VirtualAddress, result.rdata_size = sections[i].Misc.VirtualSize;
-    }
-    return result;
-  }();
-  return image;
-}
-
-// Where a RIP-relative instruction of `length` bytes, ending with its displacement, points.
-const uint8_t* RipTarget(const uint8_t* instruction, size_t length) {
-  int32_t disp;
-  memcpy(&disp, instruction + length - 4, 4);
-  return instruction + length + disp;
-}
-
-// The code that loads the exact name into rdx (lea rdx, [rip+name]), as code that registers or looks up a console
-// variable does.
-std::vector<const uint8_t*> NameLoads(const wchar_t* name) {
-  const Image& image = GameImage();
-  std::vector<const uint8_t*> loads;
-  if (image.text == nullptr || image.rdata == nullptr) return loads;
-  const size_t name_bytes = (wcslen(name) + 1) * sizeof(wchar_t);  // with the terminator: the exact name only
-  std::vector<const uint8_t*> strings;
-  for (size_t i = 0; i + name_bytes <= image.rdata_size; i += 2)
-    if (memcmp(image.rdata + i, name, name_bytes) == 0) strings.push_back(image.rdata + i);
-  if (strings.empty()) return loads;
-  for (size_t i = 0; i + 7 <= image.text_size; ++i) {
-    const uint8_t* p = image.text + i;
-    if (p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x15 &&
-        std::find(strings.begin(), strings.end(), RipTarget(p, 7)) != strings.end())
-      loads.push_back(p);
-  }
-  return loads;
-}
-
-// Finds a console variable's storage in the game's executable from the code that registers it, which loads the name
-// into rdx. FAutoConsoleVariableRef (kRef): the variable's address is loaded into r8 shortly before
-// (lea r8, [rip+X]). TAutoConsoleVariable (kAuto): the static object is loaded into rcx right after (lea rcx, [rip+X],
-// the very next instruction) and points to its value at +0x10 (TConsoleVariableData: game-thread then render-thread
-// copy).
-enum class CVarKind { kRef, kAuto };
-void* FindConsoleVariable(const wchar_t* name, CVarKind kind = CVarKind::kRef) {
-  const Image& image = GameImage();
-  for (const uint8_t* load : NameLoads(name)) {
-    if (kind == CVarKind::kAuto) {
-      const uint8_t* p = load + 7;
-      if (image.InText(p, 7) && p[0] == 0x48 && p[1] == 0x8D && p[2] == 0x0D)
-        return *reinterpret_cast<void* const*>(RipTarget(p, 7) + 0x10);
-      continue;
-    }
-    for (size_t back = 7; back <= 48 && back <= static_cast<size_t>(load - image.text); ++back) {
-      const uint8_t* p = load - back;
-      if (p[0] == 0x4C && p[1] == 0x8D && p[2] == 0x05) return const_cast<uint8_t*>(RipTarget(p, 7));
-    }
-  }
-  return nullptr;
-}
-
-
 // Writes an integer console variable before the world exists, after checking that it holds a plausible value.
 bool SetIntVariable(const wchar_t* name, int32_t lo, int32_t hi, int32_t value, int32_t* before) {
-  auto* const variable = static_cast<int32_t*>(FindConsoleVariable(name));
+  auto* const variable = static_cast<int32_t*>(code::FindVariableRef(code::GameImage(), name));
   if (variable == nullptr || *variable < lo || *variable > hi) return false;
   *before = *variable;
   Remember(variable);
@@ -334,7 +236,7 @@ void ApplyInterpolation() {
 void ApplyAnimationBudget() {
   ApplyInterpolation();
   if (g_animation_budget != 0) return;
-  auto* const enabled = static_cast<int32_t*>(FindConsoleVariable(L"a.Budget.Enabled"));
+  auto* const enabled = static_cast<int32_t*>(code::FindVariableRef(code::GameImage(), L"a.Budget.Enabled"));
   if (enabled == nullptr) {
     g_budget_status = "could not be switched off (a.Budget.Enabled not found)";
     Log(reshade::log::level::warning, "Animation budget: a.Budget.Enabled not found; left as the game set it.");
@@ -367,8 +269,15 @@ void SetJitterPhases(bool on) {
 }
 
 void ApplyJitter() {
-  g_taa_samples = static_cast<int32_t*>(FindConsoleVariable(L"r.TemporalAASamples", CVarKind::kAuto));
-  g_taa_method = static_cast<int32_t*>(FindConsoleVariable(L"r.TemporalAA.Method", CVarKind::kAuto));
+  // TAutoConsoleVariables: the pointer to their values at +0x10 of their objects.
+  const wchar_t* const names[2] = {L"r.TemporalAASamples", L"r.TemporalAA.Method"};
+  uint8_t* objects[2];
+  code::FindAutoVariables(code::GameImage(), names, 2, objects);
+  const auto values = [&](int i) {
+    return objects[i] != nullptr ? *reinterpret_cast<int32_t* const*>(objects[i] + code::kAutoVariableData) : nullptr;
+  };
+  g_taa_samples = values(0);
+  g_taa_method = values(1);
   npcmotion::dlss_probe::SetConsoleVariables(g_taa_samples, g_taa_method);
   if (g_taa_samples == nullptr || g_taa_samples[1] < 1 || g_taa_samples[1] > 255) {
     if (g_jitter_phases > 0) Log(reshade::log::level::warning, "r.TemporalAASamples not found; jitter left as is.");
@@ -394,24 +303,15 @@ uint8_t g_bias_original[bias::kPatchSize];
 
 // The stores, if they occur exactly once in the game's code.
 uint8_t* FindBiasStores() {
-  const Image& image = GameImage();
+  const code::Section& text = code::GameImage().text;
   uint8_t* found = nullptr;
-  for (size_t i = 0; i + sizeof(bias::kStores) <= image.text_size; ++i) {
-    if (image.text[i] != bias::kStores[0] || memcmp(image.text + i, bias::kStores, sizeof(bias::kStores)) != 0)
+  for (size_t i = 0; i + sizeof(bias::kStores) <= text.initialized; ++i) {
+    if (text.begin[i] != bias::kStores[0] || memcmp(text.begin + i, bias::kStores, sizeof(bias::kStores)) != 0)
       continue;
     if (found != nullptr) return nullptr;
-    found = image.text + i;
+    found = text.begin + i;
   }
   return found;
-}
-
-bool WriteCode(uint8_t* at, const uint8_t* bytes, size_t size) {
-  DWORD old;
-  if (!VirtualProtect(at, size, PAGE_EXECUTE_READWRITE, &old)) return false;
-  memcpy(at, bytes, size);
-  VirtualProtect(at, size, old, &old);
-  FlushInstructionCache(GetCurrentProcess(), at, size);
-  return true;
 }
 
 // At startup, before the game renders (no thread is in the stores while they are replaced).
@@ -440,14 +340,14 @@ bool RedirectBiasStores() {
   const uint64_t target = reinterpret_cast<uint64_t>(routine);
   memcpy(jump + sizeof(jmp_rip), &target, sizeof(target));
   memcpy(g_bias_original, site, bias::kPatchSize);
-  if (!WriteCode(site, jump, bias::kPatchSize)) return false;
+  if (!code::WriteCode(site, jump, bias::kPatchSize)) return false;
   g_bias_site = site;
   return true;
 }
 
 void RestoreBiasStores() {
   if (g_bias_site == nullptr) return;
-  WriteCode(g_bias_site, g_bias_original, bias::kPatchSize);
+  code::WriteCode(g_bias_site, g_bias_original, bias::kPatchSize);
   g_bias_site = nullptr;
 }
 
@@ -480,19 +380,21 @@ int32_t g_menu_original[4] = {};
 
 // At startup, before the menu exists (no thread is in the loops while they are changed).
 bool AddBalancedStep(std::string* error) {
-  const Image& image = GameImage();
+  const code::Image& image = code::GameImage();
   uintptr_t lists = 0;
-  if (!menu::FindLists(image.rdata, image.rdata_size, reinterpret_cast<uintptr_t>(image.rdata), &lists)) {
+  if (!menu::FindLists(image.rdata.begin, image.rdata.initialized, reinterpret_cast<uintptr_t>(image.rdata.begin),
+                       &lists)) {
     *error = "the menu's lists of limits were not found";
     return false;
   }
   menu::Sites found;
-  if (!menu::FindSites(image.text, image.text_size, reinterpret_cast<uintptr_t>(image.text), lists, &found)) {
+  if (!menu::FindSites(image.text.begin, image.text.initialized, reinterpret_cast<uintptr_t>(image.text.begin), lists,
+                       &found)) {
     *error = "the menu code that copies the limits was not found";
     return false;
   }
-  uint8_t* const sites[4] = {image.text + found.upper_begin, image.text + found.upper_end,
-                             image.text + found.lower_begin, image.text + found.lower_end};
+  uint8_t* const sites[4] = {image.text.begin + found.upper_begin, image.text.begin + found.upper_end,
+                             image.text.begin + found.lower_begin, image.text.begin + found.lower_end};
   // The add-on's list. Never freed, like the bias routine: if the loads could not be put back at unload, the menu,
   // which copies the list whenever it opens, still reads it.
   auto* const steps = static_cast<uint8_t*>(menu::AllocateNear(sites[0], sizeof(menu::kSteps)));
@@ -514,8 +416,8 @@ bool AddBalancedStep(std::string* error) {
   }
   for (int i = 0; i < 4; ++i) {
     memcpy(&g_menu_original[i], sites[i] + 3, 4);
-    if (!WriteCode(sites[i] + 3, reinterpret_cast<const uint8_t*>(&disp[i]), 4)) {
-      for (int k = 0; k < i; ++k) WriteCode(sites[k] + 3, reinterpret_cast<const uint8_t*>(&g_menu_original[k]), 4);
+    if (!code::WriteCode(sites[i] + 3, &disp[i], 4)) {
+      for (int k = 0; k < i; ++k) code::WriteCode(sites[k] + 3, &g_menu_original[k], 4);
       *error = "the menu code could not be changed";
       return false;
     }
@@ -534,7 +436,7 @@ bool AddBalancedStep(std::string* error) {
 void RestoreMenuSteps() {
   for (int i = 0; i < 4; ++i) {
     if (g_menu_sites[i] == nullptr) continue;
-    WriteCode(g_menu_sites[i] + 3, reinterpret_cast<const uint8_t*>(&g_menu_original[i]), 4);
+    code::WriteCode(g_menu_sites[i] + 3, &g_menu_original[i], 4);
     g_menu_sites[i] = nullptr;
   }
 }
@@ -882,19 +784,6 @@ void RrLog(int level, const char* text) {
 // ---------------------------------------------------------------------------------------------
 // Frames, keys and overlay
 
-// A key counts only while the game's window is in front and neither Alt nor Ctrl is held (Alt+F4 closes the game).
-bool KeyPressed(int vk, bool& was_down) {
-  if (vk == 0) return false;
-  const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
-  const bool pressed = down && !was_down;
-  was_down = down;
-  if (!pressed || (GetAsyncKeyState(VK_MENU) & 0x8000) != 0 || (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
-    return false;
-  DWORD process = 0;
-  GetWindowThreadProcessId(GetForegroundWindow(), &process);
-  return process == GetCurrentProcessId();
-}
-
 // For this session only, like the jitter and mip bias switches. (Saving 0 would leave the hooks out at the next start,
 // and with them this switch.)
 void SetPassPreExposure(bool pass) {
@@ -1045,10 +934,8 @@ void OnOverlay(effect_runtime*) {
 }
 
 void Initialize(HMODULE module) {
-  wchar_t path[MAX_PATH];
-  GetModuleFileNameW(module, path, MAX_PATH);
-  const fs::path dir = fs::path(path).parent_path();
-  g_ini_path = dir / "FF7RebirthNpcMotion.ini";
+  ff7r::InitAddon(module, "NpcMotion");
+  const fs::path& dir = ff7r::ThisAddon().folder;
   g_enabled = ReadIniInt(L"Enabled", 1) != 0;
   g_toggle_key = ReadIniInt(L"ToggleKey", 0);
   g_log_stats = ReadIniInt(L"LogStats", 0) != 0;

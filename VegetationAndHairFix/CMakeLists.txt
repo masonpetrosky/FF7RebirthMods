@@ -40,7 +40,7 @@ shader(kSoftComposite soft_edges.hlsl cs_6_0 Composite)
 configure_file(src/version.rc.in version.rc @ONLY)
 add_library(FF7RebirthVegetationAndHairFix SHARED src/addon.cpp src/dxil_patcher.cpp src/pipeline_recipe.cpp src/soft_edges.cpp
   ${SHADER_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
-target_include_directories(FF7RebirthVegetationAndHairFix PRIVATE src ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
+target_include_directories(FF7RebirthVegetationAndHairFix PRIVATE src .. ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
 target_compile_options(FF7RebirthVegetationAndHairFix PRIVATE ${WARNINGS})
 target_link_libraries(FF7RebirthVegetationAndHairFix PRIVATE dxilhash d3d12)
 set_target_properties(FF7RebirthVegetationAndHairFix PROPERTIES SUFFIX ".addon64")

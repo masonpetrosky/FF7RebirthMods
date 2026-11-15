@@ -11,9 +11,9 @@ add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8>")
 # The ReShade add-on, with a version resource for ReShade's add-on list.
 configure_file(src/version.rc.in version.rc @ONLY)
 add_library(FF7RebirthFrameLimit SHARED src/addon.cpp ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
-target_include_directories(FF7RebirthFrameLimit PRIVATE src ../third_party/reshade ../third_party/imgui)
+target_include_directories(FF7RebirthFrameLimit PRIVATE src .. ../third_party/reshade ../third_party/imgui)
 set_target_properties(FF7RebirthFrameLimit PROPERTIES SUFFIX ".addon64")
 
 # Runs the add-on's searches and changes on the game's executable mapped as an image, and tests the call counter.
 add_executable(frame_limit_test tests/game_code_test.cpp)
-target_include_directories(frame_limit_test PRIVATE src)
+target_include_directories(frame_limit_test PRIVATE src ..)

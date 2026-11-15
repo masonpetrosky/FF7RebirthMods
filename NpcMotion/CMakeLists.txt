@@ -39,7 +39,7 @@ shader(kRrShowGuide rr_guides.hlsl cs_6_0 ShowGuide)
 configure_file(src/version.rc.in version.rc @ONLY)
 add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dlss_probe.cpp src/ray_reconstruction.cpp
   src/shader_reflection.cpp ${SHADER_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
-target_include_directories(FF7RebirthNpcMotion PRIVATE src ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
+target_include_directories(FF7RebirthNpcMotion PRIVATE src .. ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
 target_include_directories(FF7RebirthNpcMotion SYSTEM PRIVATE ${DLSS_SDK_DIR}/include)
 target_link_libraries(FF7RebirthNpcMotion PRIVATE d3d12 dxguid)
 
@@ -61,7 +61,7 @@ target_link_libraries(reflect_test PRIVATE dxguid)
 
 # Finds the dynamic resolution menu code in the game's executable and checks the redirected loops' values.
 add_executable(resolution_menu_test tests/resolution_menu_test.cpp)
-target_include_directories(resolution_menu_test PRIVATE src)
+target_include_directories(resolution_menu_test PRIVATE src ..)
 
 # Runs the texture bias routine the way the game enters it.
 enable_language(ASM_MASM)

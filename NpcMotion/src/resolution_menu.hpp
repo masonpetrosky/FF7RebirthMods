@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+
+#include "common/game_code.hpp"
 
 // The dynamic resolution limits in the game's graphics options. The menu builds its two choice lists (lower limit,
 // upper limit) by copying a constant list from the executable's read-only data, element by element: 33, 50, 66 and
@@ -81,45 +74,11 @@ inline bool FindSites(const uint8_t* code, size_t size, uintptr_t address, uintp
 
 // The displacement that makes the lea at `site_address` load `target`, if it is in reach.
 inline bool Displacement(uintptr_t site_address, uintptr_t target, int32_t* disp) {
-  const intptr_t d = static_cast<intptr_t>(target) - static_cast<intptr_t>(site_address + kLeaSize);
-  if (d < INT32_MIN || d > INT32_MAX) return false;
-  *disp = static_cast<int32_t>(d);
-  return true;
+  return ff7r::game_code::Displacement(reinterpret_cast<const uint8_t*>(site_address), kLeaSize,
+                                       reinterpret_cast<const void*>(target), disp);
 }
 
-// Committed read-write memory within reach of a RIP-relative displacement from `near_address` (a little under 2 GB):
-// the free region closest below it, else above it.
-inline void* AllocateNear(const void* near_address, size_t size) {
-  SYSTEM_INFO info;
-  GetSystemInfo(&info);
-  const uintptr_t granularity = info.dwAllocationGranularity;
-  const uintptr_t center = reinterpret_cast<uintptr_t>(near_address);
-  const uintptr_t reach = 0x7FF00000;
-  const uintptr_t lowest = std::max<uintptr_t>(center > reach ? center - reach : 0,
-                                               reinterpret_cast<uintptr_t>(info.lpMinimumApplicationAddress));
-  const uintptr_t highest =
-      std::min<uintptr_t>(center + reach, reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress));
-  MEMORY_BASIC_INFORMATION mbi;
-  for (uintptr_t at = center & ~(granularity - 1); at >= lowest + granularity;) {
-    at -= granularity;
-    if (VirtualQuery(reinterpret_cast<void*>(at), &mbi, sizeof(mbi)) == 0) break;
-    if (mbi.State == MEM_FREE) {
-      if (void* p = VirtualAlloc(reinterpret_cast<void*>(at), size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) return p;
-    } else if (mbi.AllocationBase != nullptr) {
-      at = reinterpret_cast<uintptr_t>(mbi.AllocationBase) & ~(granularity - 1);  // go on below that allocation
-    }
-  }
-  for (uintptr_t at = (center + granularity) & ~(granularity - 1); at + size <= highest;) {
-    if (VirtualQuery(reinterpret_cast<void*>(at), &mbi, sizeof(mbi)) == 0) break;
-    if (mbi.State == MEM_FREE) {
-      if (void* p = VirtualAlloc(reinterpret_cast<void*>(at), size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE)) return p;
-      at += granularity;
-    } else {
-      const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-      at = (end + granularity - 1) & ~(granularity - 1);
-    }
-  }
-  return nullptr;
-}
+// Memory for the add-on's list within reach of the menu code.
+using ff7r::game_code::AllocateNear;
 
 }  // namespace npcmotion::resolution_menu

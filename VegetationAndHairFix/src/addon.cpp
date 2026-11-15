@@ -31,6 +31,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/addon.hpp"
 #include "crc32.hpp"
 #include "dxil_patcher.hpp"
 #include "pipeline_recipe.hpp"
@@ -61,7 +62,6 @@ constexpr const char* kDitherKeys[kGroupCount] = {"DitherStrength", "SceneryDith
 // opaque than that are drawn solid; scenery gets a clean alpha test. With soft edges off, characters keep dithering.
 constexpr vegfix::PatchOptions kDefaults[kGroupCount] = {{0.4f, 1.0f}, {0.4f, 0.0f}};
 
-constexpr const wchar_t* kIniSection = L"VegetationAndHairFix";
 
 struct PipelineInfo {
   uint64_t serial = 0;  // distinguishes a pipeline from a later one that reuses the same handle
@@ -90,7 +90,6 @@ struct Config {
 
 Config g_config;  // edited by the overlay (render thread only)
 fs::path g_data_dir;  // <game>\End\Binaries\Win64\FF7RebirthVegetationAndHairFix
-fs::path g_ini_path;
 
 std::atomic<bool> g_active{true};
 const wchar_t* g_old_version_loaded = nullptr;  // the add-on file of a former name that is installed too
@@ -222,9 +221,8 @@ int64_t NowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-void Log(reshade::log::level level, const std::string& message) {
-  reshade::log::message(level, ("[VegetationAndHairFix] " + message).c_str());
-}
+using ff7r::KeyPressed;
+using ff7r::Log;
 
 std::string HashName(uint32_t hash) {
   char buf[16];
@@ -239,7 +237,8 @@ std::wstring Widen(const char* s) { return std::wstring(s, s + strlen(s)); }
 
 std::wstring ReadIniString(const char* key, const wchar_t* fallback) {
   wchar_t buf[64];
-  GetPrivateProfileStringW(kIniSection, Widen(key).c_str(), fallback, buf, 64, g_ini_path.c_str());
+  const ff7r::Addon& addon = ff7r::ThisAddon();
+  GetPrivateProfileStringW(addon.section.c_str(), Widen(key).c_str(), fallback, buf, 64, addon.ini.c_str());
   return buf;
 }
 
@@ -260,7 +259,8 @@ float ReadIniFloat(const char* key, float fallback) {
 }
 
 void WriteIni(const char* key, const std::wstring& value) {
-  WritePrivateProfileStringW(kIniSection, Widen(key).c_str(), value.c_str(), g_ini_path.c_str());
+  const ff7r::Addon& addon = ff7r::ThisAddon();
+  WritePrivateProfileStringW(addon.section.c_str(), Widen(key).c_str(), value.c_str(), addon.ini.c_str());
 }
 
 bool HasIniKey(const char* key) { return !ReadIniString(key, L"").empty(); }
@@ -1479,14 +1479,6 @@ void OnDestroyDevice(device* device) {
   g_soft = nullptr;
 }
 
-bool KeyPressed(int vk, bool& was_down) {
-  if (vk == 0) return false;
-  const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
-  const bool pressed = down && !was_down;
-  was_down = down;
-  return pressed;
-}
-
 // Once per frame: clears the coverage if no composite did (on the queue, before the next frame's commands), follows
 // the main view's size, and releases textures replaced by a resize.
 void SoftEdgesHousekeeping(command_queue* queue) {
@@ -1694,11 +1686,9 @@ void OnOverlay(effect_runtime*) {
 }
 
 void Initialize(HMODULE module) {
-  wchar_t path[MAX_PATH];
-  GetModuleFileNameW(module, path, MAX_PATH);
-  const fs::path dir = fs::path(path).parent_path();
+  ff7r::InitAddon(module, "VegetationAndHairFix");
+  const fs::path& dir = ff7r::ThisAddon().folder;
   g_data_dir = dir / "FF7RebirthVegetationAndHairFix";
-  g_ini_path = dir / "FF7RebirthVegetationAndHairFix.ini";
   ImportOldSettings(dir);
   LoadConfig();
   LoadOverrides();

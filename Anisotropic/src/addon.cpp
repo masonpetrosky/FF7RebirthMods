@@ -22,13 +22,14 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
-#include <filesystem>
 #include <map>
 #include <mutex>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
+
+#include "common/addon.hpp"
 
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth Anisotropic Filtering";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
@@ -38,12 +39,9 @@ using namespace reshade::api;
 
 namespace {
 
-namespace fs = std::filesystem;
-
 constexpr int kDefaultLevel = 16;
 constexpr int kLevels[] = {0, 2, 4, 8, 16};  // offered by the overlay; 0 = leave the game's samplers alone
 
-fs::path g_ini_path;
 int g_level = kDefaultLevel;       // MaxAnisotropy when the add-on loaded: in effect this session
 int g_next_level = kDefaultLevel;  // MaxAnisotropy in the ini now; the overlay changes it for the next start
 
@@ -63,17 +61,9 @@ std::atomic<uint32_t> g_changed{0};             // anisotropic samplers given th
 std::atomic<uint32_t> g_other{0};               // samplers without anisotropic filtering, left alone
 std::atomic<uint32_t> g_static{0};              // anisotropic static samplers in the root signatures created
 
-void Log(reshade::log::level level, const std::string& message) {
-  reshade::log::message(level, ("[Anisotropic] " + message).c_str());
-}
-
-int ReadIniInt(const wchar_t* key, int fallback) {
-  return static_cast<int>(GetPrivateProfileIntW(L"Anisotropic", key, fallback, g_ini_path.c_str()));
-}
-
-void WriteIniInt(const wchar_t* key, int value) {
-  WritePrivateProfileStringW(L"Anisotropic", key, std::to_wstring(value).c_str(), g_ini_path.c_str());
-}
+using ff7r::Log;
+using ff7r::ReadIniInt;
+using ff7r::WriteIniInt;
 
 // D3D12_ANISOTROPIC_FILTERING_BIT: set in every anisotropic filter, with or without comparison or min/max reduction.
 bool IsAnisotropic(filter_mode filter) { return (static_cast<uint32_t>(filter) & 0x40) != 0; }
@@ -173,9 +163,7 @@ void OnOverlay(effect_runtime*) {
 }
 
 void Initialize(HMODULE module) {
-  wchar_t path[MAX_PATH];
-  GetModuleFileNameW(module, path, MAX_PATH);
-  g_ini_path = fs::path(path).parent_path() / "FF7RebirthAnisotropic.ini";
+  ff7r::InitAddon(module, "Anisotropic");
   const int level = ReadIniInt(L"MaxAnisotropy", kDefaultLevel);
   g_level = level <= 0 ? 0 : std::min(level, 16);
   g_next_level = g_level;

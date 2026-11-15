@@ -127,7 +127,7 @@ In the ini, the scenery settings are `SceneryThreshold` and `SceneryDitherStreng
 settings are `SoftEdges`, `Threshold`, `SoftEdgeSoftness` and (soft edges off) `DitherStrength`.
 
 Hotkeys are [virtual-key codes](https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes)
-in the ini, 0 = none:
+in the ini, 0 = none. They work while the game's window is in front and neither Alt nor Ctrl is held:
 
 - `ToggleKey` switches the whole fix on and off (for example `119` for F8).
 - `SoftEdgesKey` switches soft edges on and off, so you can compare them with a clean cutout (for

@@ -35,6 +35,8 @@
 #include <filesystem>
 #include <string>
 
+#include "common/addon.hpp"
+
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth Shader Injector Sync";
 extern "C" __declspec(dllexport) const char* DESCRIPTION =
     "Holds FINAL FANTASY VII REBIRTH at startup until Shader Injector has hooked Direct3D 12, so its shaders replace "
@@ -55,7 +57,6 @@ constexpr const char* kReadyMarker = "Hooks->CleanupDummyObjects: complete";
 constexpr const char* kFailedMarkers[] = {"Hooks->Initialize: Failed to create dummy device",
                                           "Hooks->Initialize: MH_EnableHook failed"};
 
-fs::path g_ini_path;
 int g_wait_seconds = kDefaultWaitSeconds;
 std::atomic<bool> g_device_seen{false};
 std::atomic<bool> g_queue_seen{false};
@@ -63,9 +64,7 @@ double g_device_seconds = 0.0;  // seconds from process start to the game's firs
 std::string g_status;           // what happened at startup, for the overlay; written once, before g_status_set
 std::atomic<bool> g_status_set{false};
 
-void Log(reshade::log::level level, const std::string& message) {
-  reshade::log::message(level, ("[ShaderInjectorSync] " + message).c_str());
-}
+using ff7r::Log;
 
 void SetStatus(reshade::log::level level, const std::string& message) {
   Log(level, message);
@@ -254,12 +253,8 @@ void OnOverlay(effect_runtime*) {
 }
 
 void Initialize(HMODULE module) {
-  wchar_t path[MAX_PATH];
-  GetModuleFileNameW(module, path, MAX_PATH);
-  g_ini_path = fs::path(path).parent_path() / "FF7RebirthShaderInjectorSync.ini";
-  g_wait_seconds = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"ShaderInjectorSync", L"WaitSeconds",
-                                                                     kDefaultWaitSeconds, g_ini_path.c_str())),
-                              0, 120);
+  ff7r::InitAddon(module, "ShaderInjectorSync");
+  g_wait_seconds = std::clamp(ff7r::ReadIniInt(L"WaitSeconds", kDefaultWaitSeconds), 0, 120);
 }
 
 }  // namespace

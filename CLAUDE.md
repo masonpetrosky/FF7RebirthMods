@@ -14,6 +14,7 @@ them at once. Each mod still ships on its own (its own zip, Nexus page and relea
 | `ShaderInjectorSync/` | ReShade add-on: holds startup until Shader Injector has hooked D3D12 (retired 2026-11-08 with Shader Injector; never released) | `FF7RebirthShaderInjectorSync.addon64` + `.ini` |
 | `TextureUpscaler/` | Python: AI texture upscaling into a `~mods` IoStore package (its own `.venv`, `bin/`, `models/`, `work/`, all git-ignored) | `FF7RebirthTextureUpscaler_P.pak/.ucas/.utoc` in `Paks\~mods` |
 | `third_party/` | ReShade and Dear ImGui headers, DXIL hash (DXC); one copy for every add-on | |
+| `common/` | what every add-on does the same way, one copy for all: `addon.hpp` (its log lines, settings file and keys, after `ff7r::InitAddon(module, "<Mod>")`), `game_code.hpp` (the game's executable: sections, RIP-relative instructions, code writes, memory near the code, console variables; Frame Limit and NPC Motion) | (compiled into each add-on) |
 | `tools/` | Game-wide investigation scripts: `launch_rdc.ps1` (game under RenderDoc), `rdc.sh` + `rdc_*.py` (read captures), `disasm.py`, `xref*.py`, `callers.py`, `memread.py` (the exe), `decode_png16.ps1` + `shot_bands.py` (HDR screenshots), `perf_session.py` + `perf_report.py` (frame times at one spot with each mod switched off and on by its key), `noise_session.py` (where the picture flickers at one spot, each mod switched off by its key: HDR ffmpeg bursts, flicker maps, A/A floor), `cpu_sampler.cpp` + `cpu_profile.py` (where the game's CPU time goes, per thread and module), `gpu_timer.cpp` (development add-on: Shader Injector's passes timed on the GPU) | |
 | `captures/` | git-ignored: every RenderDoc capture of the game and what the tools dumped from them (e.g. the Kalm capture `ff7r_frame8775.rdc`) | |
 | `gamedata/` | git-ignored: the game's own config files, unpacked from its pak | |
@@ -23,8 +24,9 @@ relative to the repository root unless the doc says otherwise.
 
 ## Build, check, package
 
-- `.\build.ps1` builds every add-on and test tool into `build\<Mod>\`; `.\build.ps1 FF7RebirthNpcMotion` builds one
-  target. Each `<Mod>/CMakeLists.txt` also builds alone (`cmake -S <Mod>`).
+- `.\build.ps1` builds every add-on and test tool into `build\<Mod>\`; `.\build.ps1 FF7RebirthNpcMotion frame_limit_test`
+  builds only those targets (the configuration only by name: `-Config Debug`). Each `<Mod>/CMakeLists.txt` also builds
+  alone (`cmake -S <Mod>`).
 - Bit-for-bit comparisons: set `$env:CL='/Brepro'; $env:_LINK_='/Brepro'` before building and two builds of the same
   source give identical files. That is how the 2026-10-31 move into this repository was checked against the five
   original repositories (all add-ons, test tools and release zips identical).

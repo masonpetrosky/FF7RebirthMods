@@ -37,10 +37,10 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
-#include <filesystem>
 #include <mutex>
 #include <string>
 
+#include "common/addon.hpp"
 #include "game_code.hpp"
 
 extern "C" __declspec(dllexport) const char* NAME = "FF7 Rebirth Frame Limit";
@@ -53,12 +53,9 @@ namespace code = framelimit::game_code;
 
 namespace {
 
-namespace fs = std::filesystem;
-
 constexpr const char kHandlerClass[] = ".?AVFStreamlineMaxTickRateHandler@@";
 
 // Settings (FF7RebirthFrameLimit.ini, section [FrameLimit]).
-fs::path g_ini_path;
 int g_limit = -1;      // shown frames per second; 0 = no limit; below 0 = 3 below the display's refresh rate
 int g_test_limit = 0;  // a second limit the toggle key also switches to; 0 = none
 int g_toggle_key = 0;  // virtual-key code, 0 = none
@@ -109,9 +106,10 @@ int64_t g_stats_logged = 0;
 bool g_toggle_down = false;
 bool g_reflex_down = false;
 
-void Log(reshade::log::level level, const std::string& message) {
-  reshade::log::message(level, ("[FrameLimit] " + message).c_str());
-}
+using ff7r::KeyPressed;
+using ff7r::Log;
+using ff7r::ReadIniInt;
+using ff7r::WriteIniInt;
 
 std::string Format(const char* format, ...) {
   char text[1024];
@@ -126,14 +124,6 @@ int64_t Qpc() {
   LARGE_INTEGER t;
   QueryPerformanceCounter(&t);
   return t.QuadPart;
-}
-
-int ReadIniInt(const wchar_t* key, int fallback) {
-  return static_cast<int>(GetPrivateProfileIntW(L"FrameLimit", key, fallback, g_ini_path.c_str()));
-}
-
-void WriteIniInt(const wchar_t* key, int value) {
-  WritePrivateProfileStringW(L"FrameLimit", key, std::to_wstring(value).c_str(), g_ini_path.c_str());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -392,18 +382,6 @@ void SetMode(Mode mode) {
                                                     : "Limit on: " + ShownLimitText(mode) + (mode == Mode::test ? " (TestLimit)." : "."));
 }
 
-bool KeyPressed(int vk, bool& was_down) {
-  if (vk == 0) return false;
-  const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
-  const bool pressed = down && !was_down;
-  was_down = down;
-  if (!pressed || (GetAsyncKeyState(VK_MENU) & 0x8000) != 0 || (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0)
-    return false;
-  DWORD process = 0;
-  GetWindowThreadProcessId(GetForegroundWindow(), &process);
-  return process == GetCurrentProcessId();
-}
-
 // Every present, generated frames included (frame generation may present them from another thread).
 void OnPresent(command_queue*, swapchain* swapchain, const rect*, const rect*, uint32_t, const rect*) {
   g_presents.fetch_add(1, std::memory_order_relaxed);
@@ -500,9 +478,7 @@ void OnOverlay(effect_runtime*) {
 // Startup and unload
 
 void Initialize(HMODULE module) {
-  wchar_t path[MAX_PATH];
-  GetModuleFileNameW(module, path, MAX_PATH);
-  g_ini_path = fs::path(path).parent_path() / "FF7RebirthFrameLimit.ini";
+  ff7r::InitAddon(module, "FrameLimit");
   g_limit = ReadIniInt(L"Limit", -1);
   g_test_limit = std::max(0, ReadIniInt(L"TestLimit", 0));
   g_toggle_key = ReadIniInt(L"ToggleKey", 0);

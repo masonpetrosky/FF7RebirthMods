@@ -1,3 +1,5 @@
+<!-- For the next release (since 0.3.1, not released yet): the hotkeys now work only while the game's window is in front
+and neither Alt nor Ctrl is held, as in our other add-ons (before, a key pressed in another window switched the fix). -->
 Removes the grainy, screen-door dithering on trees, grass and other foliage in FINAL FANTASY VII REBIRTH when using DLSS, DLAA or FSR, and gives hair and fur soft edges.
 
 **New in 0.3.1:**

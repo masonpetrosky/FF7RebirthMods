@@ -1,6 +1,9 @@
 # Builds every add-on (or only the given CMake targets) with the newest installed Visual Studio (x64, Release).
-# Output: build\<Mod>\FF7Rebirth<Mod>.addon64, e.g. .\build.ps1 or .\build.ps1 FF7RebirthNpcMotion.
-param([string[]]$Target = @(), [string]$Config = 'Release')
+# Output: build\<Mod>\FF7Rebirth<Mod>.addon64, e.g. .\build.ps1 or .\build.ps1 FF7RebirthNpcMotion frame_limit_test.
+# The configuration only by name (-Config Debug): every other argument is a target.
+[CmdletBinding(PositionalBinding = $false)]
+param([Parameter(Position = 0, ValueFromRemainingArguments = $true)][string[]]$Target = @(),
+      [ValidateSet('Release', 'Debug', 'RelWithDebInfo', 'MinSizeRel')][string]$Config = 'Release')
 $ErrorActionPreference = 'Stop'
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
