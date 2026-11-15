@@ -19,7 +19,8 @@ WAITS = ("NtWaitFor", "ZwWaitFor", "NtDelayExecution", "ZwDelayExecution", "NtRe
          "NtWaitForWorkViaWorkerFactory", "ZwWaitForWorkViaWorkerFactory", "NtGdiDdDDIWaitForSynchronizationObject",
          "NtWaitForKeyedEvent", "ZwWaitForKeyedEvent", "SwitchToThread")
 ADDONS = {"ff7rebirthvegetationandhairfix.addon64": "Veg+Hair Fix", "ff7rebirthnpcmotion.addon64": "NPC Motion",
-          "ff7rebirthanisotropic.addon64": "Anisotropic", "ff7rebirthshaderinjectorsync.addon64": "Injector Sync"}
+          "ff7rebirthanisotropic.addon64": "Anisotropic", "ff7rebirthshaderinjectorsync.addon64": "Injector Sync",
+          "ff7rebirthframelimit.addon64": "Frame Limit", "ff7rebirthraytracing.addon64": "Ray Tracing"}
 
 
 def category(path, system):
@@ -42,6 +43,8 @@ def category(path, system):
             return "ReShade"
         if name == "dsound.dll":
             return "Shader Injector"
+        if name == "d3d12.dll":
+            return "SCSKiller recorder"  # its D3D12 proxy (CLAUDE.md "Working on the game")
         if name == "dxcompiler.dll":
             return "dxcompiler"
         return "game: " + name

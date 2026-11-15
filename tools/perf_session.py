@@ -4,10 +4,12 @@ Start it with the game in front, the party standing still at the spot to test an
 PresentMon (frame time, GPU busy, CPU busy) for the whole run and nvidia-smi once a second, and switches the mods that
 have a hotkey off and on in turn, each for S seconds (A/B/A, N rounds):
   F7  NPC Motion's motion-vector fix   F8  Vegetation and Hair Fix   F6  its soft edges
-(Switch 1, Shader Injector on Delete, stays in the list so the numbers keep their meaning, but the game no longer has
-it: removed 2026-11-08.)
-Then it samples the game's busiest CPU threads for --profile seconds with build/cpu_sampler.exe. At the start it takes
-a ReShade screenshot (M6, Page Down) of the measured view.
+  Delete  the ray tracing's sun shadows (FF7RebirthRayTracing; switched off, the game's own shadows)
+(Switch 1, Shader Injector, stays in the list so the numbers keep their meaning, but the game no longer has it
+(removed 2026-11-08), and its key, Delete, is the ray tracing's now: switch 6.)
+Then it samples the game's busiest CPU threads for --profile seconds with build/cpu_sampler.exe, and with
+--profile-off again with the first tested switch off (where the CPU time goes with and without it). At the start it
+takes a ReShade screenshot (M6, Page Down) of the measured view.
 
 Keys only ever go to the game: each one waits until the game is in front. A mod that was switched off is always
 switched back on, waiting up to 10 minutes for the game to come back to the front (and saying so if it cannot).
@@ -35,15 +37,16 @@ SESSION = "FF7RebirthModsPerf"
 
 # label, virtual key, extended key (for the scan code)
 SWITCHES = [
-    ("Shader Injector", 0x2E, True),           # Delete; removed from the game 2026-11-08, not in the default run
+    ("Shader Injector", None, False),          # was Delete; removed from the game 2026-11-08 (Delete is switch 6 now)
     ("NPC Motion fix", 0x76, False),           # F7
     ("Vegetation and Hair Fix", 0x77, False),  # F8
     ("soft edges", 0x75, False),               # F6
     # Switches DLSS Ray Reconstruction ON (NPC Motion's RayReconstructionKey; the user's ini sets F13 for tests only):
     # its "off" segments are Ray Reconstruction's. Not in the default run: --only 5.
     ("NPC Motion's Ray Reconstruction (switched on)", 0x7C, False),  # F13
+    ("ray tracing's sun shadows", 0x2E, True),  # Delete: FF7RebirthRayTracing's SunShadowsKey (since 2026-11-15)
 ]
-DEFAULT_SWITCHES = (2, 3, 4)  # switch numbers of the default run: the installed mods' own switches
+DEFAULT_SWITCHES = (2, 3, 4, 6)  # switch numbers of the default run: the installed mods' own switches
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -114,8 +117,11 @@ def main():
     parser.add_argument("--segment", type=float, default=10.0, help="seconds per state (default 10)")
     parser.add_argument("--rounds", type=int, default=2, help="A/B/A rounds per switch (default 2)")
     parser.add_argument("--profile", type=float, default=15.0, help="seconds of CPU sampling at the end, 0 = none")
-    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-5; 1 = Shader Injector, "
-                                                   "no longer installed; 5 = NPC Motion's Ray Reconstruction), default 2-4")
+    parser.add_argument("--profile-off", action="store_true",
+                        help="after the CPU sample with all on, another with the first tested switch off")
+    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-6; 1 = Shader Injector, "
+                                                   "no longer installed; 5 = NPC Motion's Ray Reconstruction; 6 = the "
+                                                   "ray tracing's sun shadows), default 2-4 and 6")
     parser.add_argument("--no-keys", action="store_true", help="press nothing: the same segments, all on")
     args = parser.parse_args()
 
@@ -126,6 +132,9 @@ def main():
     if args.profile > 0 and not os.path.exists(SAMPLER):
         sys.exit(f"{SAMPLER} missing: run .\\build.ps1 cpu_sampler")
     numbers = [int(i) for i in args.only.split(",")] if args.only else list(DEFAULT_SWITCHES)
+    for i in numbers:
+        if not 1 <= i <= len(SWITCHES) or SWITCHES[i - 1][1] is None:
+            sys.exit(f"no switch {i} to test (1, Shader Injector, is no longer installed)")
     switches = [SWITCHES[i - 1] for i in numbers]
     os.makedirs(args.out_dir, exist_ok=True)
     total = args.segment * (1 + 2 * args.rounds * len(switches)) + args.profile + 15
@@ -198,12 +207,29 @@ def main():
         with open(os.path.join(args.out_dir, "timeline.json"), "w") as f:
             json.dump(timeline, f, indent=1)
 
+    def sample(prefix):
+        start = qpc()
+        subprocess.run([SAMPLER, GAME, str(args.profile), os.path.join(args.out_dir, prefix), "--hz", "250",
+                        "--threads", "16"], check=False)
+        return {"start": start, "seconds": args.profile}
+
     if args.profile > 0:
         print(f"Sampling the game's CPU threads for {args.profile:.0f} s...", flush=True)
-        start = qpc()
-        subprocess.run([SAMPLER, GAME, str(args.profile), os.path.join(args.out_dir, "cpu"), "--hz", "250",
-                        "--threads", "16"], check=False)
-        timeline["profile"] = {"start": start, "seconds": args.profile}
+        timeline["profile"] = sample("cpu")
+        if args.profile_off and not args.no_keys:
+            name, vk, extended = switches[0]
+            if not tap(vk, extended, 0):
+                print(f"The game is not in front: no CPU sample with {name} off.")
+            else:
+                try:
+                    print(f"Sampling again with {name} off...", flush=True)
+                    time.sleep(2.0)  # past the switch's first frames
+                    timeline["profile_off"] = dict(sample("cpu_off"), switch=name)
+                finally:
+                    if tap(vk, extended, 600):
+                        print(f"{name} switched back on")
+                    else:
+                        print(f"WARNING: {name} is still OFF; press its key in the game")
         with open(os.path.join(args.out_dir, "timeline.json"), "w") as f:
             json.dump(timeline, f, indent=1)
     # The GPU timer add-on's lines from this run, if it is installed (tools/gpu_timer.cpp).

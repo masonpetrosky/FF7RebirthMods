@@ -148,10 +148,13 @@ def main():
                   f"{statistics.median(util):.0f}%, clock median {statistics.median(clock):.0f} MHz, power median "
                   f"{statistics.median(power):.0f} W, {max(temp):.0f} C max, clock event reasons {reasons}")
 
+    profile = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cpu_profile.py")
     if os.path.exists(os.path.join(args.out_dir, "cpu_stacks.tsv")):
         print(flush=True)
-        subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "cpu_profile.py"),
-                        os.path.join(args.out_dir, "cpu")], check=False)
+        subprocess.run([sys.executable, profile, os.path.join(args.out_dir, "cpu")], check=False)
+    if os.path.exists(os.path.join(args.out_dir, "cpu_off_stacks.tsv")):
+        print(f"\nThe same with {timeline.get('profile_off', {}).get('switch', 'the first switch')} off:", flush=True)
+        subprocess.run([sys.executable, profile, os.path.join(args.out_dir, "cpu_off")], check=False)
 
 
 if __name__ == "__main__":
