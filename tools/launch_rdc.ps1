@@ -1,4 +1,4 @@
-# Starts FINAL FANTASY VII REBIRTH under RenderDoc 1.46 for a frame capture and waits for the game to exit.
+# Starts FINAL FANTASY VII REBIRTH under RenderDoc 1.47 for a frame capture and waits for the game to exit.
 # For the session only, the D3D hook DLLs in the game folder are switched off (ReShade dxgi.dll, Shader Injector
 # dsound.dll, a d3d12.dll proxy such as SCSKiller's recorder) and a steam_appid.txt lets the game start without Steam
 # relaunching it; all of it is undone when the game exits (or with -Restore after a crash of this script).
@@ -11,10 +11,10 @@ $ErrorActionPreference = 'Stop'
 
 $game = 'C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY VII REBIRTH'
 $win64 = Join-Path $game 'End\Binaries\Win64'
-# RenderDoc 1.46 and a Python with the standard library; by default the shared copies in the Tools folder beside the
+# RenderDoc 1.47 and a Python with the standard library; by default the shared copies in the Tools folder beside the
 # Projects folder that holds this repository (override with RENDERDOC_DIR and FF7REBIRTH_PYTHON).
 $tools = Join-Path $PSScriptRoot '..\..\..\Tools'
-$rd = Join-Path ($env:RENDERDOC_DIR ?? (Join-Path $tools 'RenderDoc\RenderDoc_1.46_64')) 'renderdoccmd.exe'
+$rd = Join-Path ($env:RENDERDOC_DIR ?? (Join-Path $tools 'RenderDoc\RenderDoc_1.47_64')) 'renderdoccmd.exe'
 $python = $env:FF7REBIRTH_PYTHON ?? (Join-Path $tools 'Python\analysis\Scripts\python.exe')
 $captures = Join-Path $PSScriptRoot '..\captures'
 New-Item -ItemType Directory -Force $captures | Out-Null

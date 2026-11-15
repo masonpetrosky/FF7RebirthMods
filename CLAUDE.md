@@ -62,8 +62,8 @@ relative to the repository root unless the doc says otherwise.
   our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15).
   Insert is free since Shader Injector went. Avoid F10, which Windows treats as the menu key. Check this list before
   adding a key.
-- RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.46 with every hook DLL switched off for the
-  session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library
+- RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.47 (since 2026-11-15; Kalm read the same as
+  with 1.46) with every hook DLL switched off for the session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library
   assert. Captures land in `captures\`. `tools/rdc.sh <script>` runs a capture script headless.
 - How the add-ons share the game: NPC Motion and Vegetation and Hair Fix each load their own `dxcompiler.dll`
   (NPC Motion also looks in the Vegetation and Hair Fix folder). While Shader Injector was installed it hooked
