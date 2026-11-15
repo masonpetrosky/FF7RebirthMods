@@ -56,8 +56,9 @@ relative to the repository root unless the doc says otherwise.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, F3 and F11 = the game (F11 toggles
   windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation and Hair Fix (set in the installed ini; the
   shipped ini has no keys), Page Up = Frame Limit (installed ini only), F13/F15 = NPC Motion's Ray Reconstruction
-  test keys and F14 = Frame Limit's Reflex test key (keys the keyboard doesn't have, for scripted tests). Insert and
-  Delete are free since Shader Injector went. Avoid F10, which Windows treats as the menu key. Check this list before
+  test keys and F14 = Frame Limit's Reflex test key (keys the keyboard doesn't have, for scripted tests), Delete =
+  our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15).
+  Insert is free since Shader Injector went. Avoid F10, which Windows treats as the menu key. Check this list before
   adding a key.
 - RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.46 with every hook DLL switched off for the
   session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library
