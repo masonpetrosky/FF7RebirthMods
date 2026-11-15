@@ -15,7 +15,7 @@ The keys must match the installed ini files (see CLAUDE.md "Keys already taken")
 
 Writes OUT_DIR/presentmon.csv, gpu.csv, timeline.json and cpu_*.tsv (and gpu_timer.csv: this run's lines of the GPU
 timer add-on's log, if it is installed; see tools/gpu_timer.cpp), then prints tools/perf_report.py's table.
-Needs PresentMon 2.5.1 in Documents\\Tools\\PresentMon (runs without elevation for the user's own game).
+Needs PresentMon 2.6.0 in Documents\\Tools\\PresentMon (runs without elevation for the user's own game).
 """
 import argparse
 import ctypes
@@ -27,7 +27,7 @@ import time
 from ctypes import wintypes
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PRESENTMON = os.path.join(ROOT, "..", "..", "Tools", "PresentMon", "2.5.1", "PresentMon-2.5.1-x64.exe")
+PRESENTMON = os.path.join(ROOT, "..", "..", "Tools", "PresentMon", "2.6.0", "PresentMon-2.6.0-x64.exe")
 SAMPLER = os.path.join(ROOT, "build", "cpu_sampler.exe")
 GAME_DIR = r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY VII REBIRTH\End\Binaries\Win64"
 GAME = os.environ.get("PERF_SESSION_EXE", "ff7rebirth_.exe")  # another exe only for testing this script
