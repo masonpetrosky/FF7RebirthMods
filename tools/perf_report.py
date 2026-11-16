@@ -16,7 +16,9 @@ import sys
 
 
 def load_frames(path):
-    """The game's frames on its busiest swap chain: (CPUStartQPC, frame ms, GPU busy ms, CPU busy ms)."""
+    """The game's frames on its busiest swap chain: (CPUStartQPC, frame ms, GPU busy ms, CPU busy ms, GPU wait ms,
+    GPU latency ms). GPU wait is the GPU's idle time inside the frame's work (waiting for the CPU's submissions);
+    GPU latency, how long after the frame's CPU start its GPU work began."""
     rows = {}
     with open(path, newline="") as f:
         for r in csv.DictReader(f):
@@ -34,26 +36,31 @@ def load_frames(path):
     for r in main:
         t, ft, gpu, cpu = int(r["CPUStartQPC"]), num(r["MsBetweenPresents"]), num(r["MsGPUBusy"]), num(r["MsCPUBusy"])
         if ft is not None and ft > 0:
-            frames.append((t, ft, gpu, cpu))
+            frames.append((t, ft, gpu, cpu, num(r.get("MsGPUWait")), num(r.get("MsGPULatency"))))
     frames.sort()
     return frames
 
 
 def stats(frames):
     ft = [f[1] for f in frames]
-    gpu = [f[2] for f in frames if f[2] is not None]
-    cpu = [f[3] for f in frames if f[3] is not None]
     if len(ft) < 10:
         return None
+
+    def median(i):
+        v = [f[i] for f in frames if f[i] is not None]
+        return statistics.median(v) if v else float("nan")
     ft_sorted = sorted(ft)
+    gpu = [f for f in frames if f[2] is not None]
     return {
         "frames": len(ft),
         "fps": 1000.0 * len(ft) / sum(ft),
         "frame_ms": statistics.median(ft),
         "p99_ms": ft_sorted[min(len(ft) - 1, int(0.99 * len(ft)))],
-        "gpu_ms": statistics.median(gpu) if gpu else float("nan"),
-        "cpu_ms": statistics.median(cpu) if cpu else float("nan"),
-        "gpu_share": statistics.median([f[2] / f[1] for f in frames if f[2] is not None]) if gpu else float("nan"),
+        "gpu_ms": median(2),
+        "cpu_ms": median(3),
+        "gpu_wait_ms": median(4),
+        "gpu_latency_ms": median(5),
+        "gpu_share": statistics.median([f[2] / f[1] for f in gpu]) if gpu else float("nan"),
     }
 
 
@@ -74,13 +81,17 @@ def main():
         lo, hi = s["start"] + int(args.settle * freq), s["end"]
         segs.append((s["label"], stats([f for f in frames if lo <= f[0] < hi])))
 
-    print(f"{'state':34s} {'fps':>6s} {'frame':>7s} {'p99':>7s} {'GPU busy':>9s} {'CPU busy':>9s} {'GPU share':>9s}")
+    print(f"{'state':34s} {'fps':>6s} {'frame':>7s} {'p99':>7s} {'GPU busy':>9s} {'CPU busy':>9s} {'GPU share':>9s} "
+          f"{'GPU idle':>9s} {'GPU late':>9s}")
     for label, st in segs:
         if st is None:
             print(f"{label:34s}   (too few frames)")
             continue
         print(f"{label:34s} {st['fps']:6.1f} {st['frame_ms']:6.2f}ms {st['p99_ms']:6.2f}ms {st['gpu_ms']:7.2f}ms "
-              f"{st['cpu_ms']:7.2f}ms {100 * st['gpu_share']:8.0f}%")
+              f"{st['cpu_ms']:7.2f}ms {100 * st['gpu_share']:8.0f}% {st['gpu_wait_ms']:7.2f}ms "
+              f"{st['gpu_latency_ms']:7.2f}ms")
+    print("(GPU idle: the GPU waiting inside the frame's work, for the CPU's submissions; GPU late: how long after "
+          "the frame's CPU start its GPU work began)")
 
     # Each "X off" against the mean of its neighbours (always "all on").
     deltas = {}
