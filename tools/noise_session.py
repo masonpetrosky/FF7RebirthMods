@@ -3,7 +3,8 @@
 Start it with the game in front, the party and the camera still, and hands off the controls. It records the screen in
 HDR (ffmpeg ddagrab, 16-bit float scRGB, each new frame at most once) for each state, A/B/A:
   all on, then each switch off and all on again: Vegetation and Hair Fix (F8), its soft edges (F6), NPC Motion's
-  fix (F7), its DLSS jitter phases (F5) and its DLSS pre-exposure (F4) (Shader Injector on Delete was the first
+  fix (F7), its DLSS jitter phases (F5), its DLSS pre-exposure (F4) and the ray tracing's sun shadows (Delete,
+  FF7RebirthRayTracing's SunShadowsKey: off, the game's own shadows) (Shader Injector on Delete was the first
   switch until it was removed from the game on 2026-11-08)
 letting each state settle --settle seconds first. A switched-off mod is always switched back on. Then, per state:
   - <state>-frame.png: the first frame in SDR (white 203 nits, extended Reinhard to 1000 nits, sRGB), full size;
@@ -18,6 +19,8 @@ stay in OUT_DIR (about 1 GB a state) for full-size crops; delete them afterwards
 (CLAUDE.md "Keys already taken").
 --toggle NAME=VK compares something a key switches ON instead (states 'base' and 'NAME-on'), e.g. --toggle rr=0x7C
 --rounds 2 for NPC Motion's DLSS Ray Reconstruction against the game's DLSS (RayReconstructionKey=124, F13).
+The ray tracing's flicker A/B (its docs/plan.md, stage 2): --only raytracing --rounds 2 (all on, the game's shadows,
+all on, the game's shadows, all on: the three all-on states give the A/A floor).
 """
 import argparse
 import glob
@@ -45,6 +48,8 @@ SWITCHES = [
     ("npcmotion", "NPC Motion fix", 0x76, False),            # F7
     ("jitter", "DLSS jitter phases", 0x74, False),           # F5
     ("preexposure", "DLSS pre-exposure", 0x73, False),       # F4
+    # Delete: FF7RebirthRayTracing's SunShadowsKey (perf_session.py's switch 6); off = the game's shadows
+    ("raytracing", "ray tracing's sun shadows", 0x2E, True),
 ]
 
 
