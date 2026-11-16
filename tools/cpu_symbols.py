@@ -1,6 +1,6 @@
 """One module's share of the game's CPU samples by function and source line, from the module's symbols.
 
-cpu_symbols.py PREFIX BUILD_DLL [--threads N] [--top N] [--function NAME]
+cpu_symbols.py PREFIX BUILD_DLL [--threads N] [--top N] [--function NAME] [--callers NAME]
 
 PREFIX is build/cpu_sampler.exe's output prefix (perf_session.py's OUT_DIR/cpu or OUT_DIR/cpu_off); BUILD_DLL a build of
 the module with its PDB beside it (FF7RebirthRayTracing's build\\FF7RebirthRayTracing.addon64 has one). The samples'
@@ -15,6 +15,8 @@ Per thread (the N busiest with samples in the module):
   method of that slot (right when the object is a command list; ReShade's and other objects have other methods);
 - with --function NAME: that function's lines, inclusive (each sample at the line of the function's own frame, inlined
   code charged to the line that calls it).
+- with --callers NAME: who calls that function, by the calling function and its line (the nearest frame of the
+  module above the function's nearest one: e.g. `--callers _malloc_base` for what allocates).
 Needs the analysis Python (Documents\\Tools\\Python\\analysis: capstone).
 """
 import argparse
@@ -175,6 +177,7 @@ def main():
     parser.add_argument("--threads", type=int, default=4, help="busiest threads with samples in the module (4)")
     parser.add_argument("--top", type=int, default=12, help="functions, call sites and lines listed (12)")
     parser.add_argument("--function", default="", help="also this function's lines (a part of its name)")
+    parser.add_argument("--callers", default="", help="also who calls this function (a part of its name), by line")
     args = parser.parse_args()
 
     module_name = os.path.basename(args.build_dll).lower()
@@ -219,7 +222,8 @@ def main():
         index, tid, name, sampled, busy, cpu_s, samples, copied = line.split("\t")
         threads[tid] = {"name": name or "(unnamed)", "busy": float(busy), "weight": 0.0, "ours": 0.0,
                         "inclusive": collections.Counter(), "self": collections.Counter(),
-                        "calls": collections.Counter(), "lines": collections.Counter()}
+                        "calls": collections.Counter(), "lines": collections.Counter(),
+                        "callers": collections.Counter()}
     for line in open(args.prefix + "_stacks.tsv", encoding="utf-8"):
         if line.startswith("#"):
             continue
@@ -243,6 +247,16 @@ def main():
                            chain[-1][1] if chain else "?")
                 t["lines"][own + ("" if k == 0 else " (and what it calls)")] += w
                 seen.add("line")
+        if args.callers:  # the module's frame above the nearest of that function's, at its call site
+            for j, (k, rva) in enumerate(ours):
+                if args.callers not in symbols.where(rva)[0]:
+                    continue
+                if j + 1 < len(ours):
+                    caller, chain = symbols.where(ours[j + 1][1])
+                    t["callers"][f"{caller} ({chain[-1][1] if chain else '?'})"] += w
+                else:
+                    t["callers"]["(from outside the module)"] += w
+                break
         k, rva = ours[0]
         function = symbols.where(rva)[0]
         t["self"][function + ("" if k == 0 else " (its calls out)")] += w
@@ -267,6 +281,10 @@ def main():
         if t["lines"]:
             print(f"  {args.function}'s lines (inclusive):")
             for place, w in t["lines"].most_common(args.top):
+                print(f"    {w * share:5.2f}%  {place}")
+        if t["callers"]:
+            print(f"  {args.callers}'s callers (inclusive, by call site):")
+            for place, w in t["callers"].most_common(args.top):
                 print(f"    {w * share:5.2f}%  {place}")
 
 
