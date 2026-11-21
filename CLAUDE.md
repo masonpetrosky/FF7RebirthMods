@@ -61,9 +61,9 @@ relative to the repository root unless the doc says otherwise.
   windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation and Hair Fix (set in the installed ini; the
   shipped ini has no keys), Page Up = Frame Limit (installed ini only), F13/F15 = NPC Motion's Ray Reconstruction
   test keys and F14 = Frame Limit's Reflex test key (keys the keyboard doesn't have, for scripted tests), Delete =
-  our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15).
-  Insert is free since Shader Injector went. Avoid F10, which Windows treats as the menu key. Check this list before
-  adding a key.
+  our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15),
+  Insert = its AO, ours or the game's (`RtAoKey`, since 2026-11-20). Avoid F10, which Windows treats as the menu key.
+  Check this list before adding a key.
 - RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.47 (since 2026-11-15; Kalm read the same as
   with 1.46) with every hook DLL switched off for the session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library
   assert. Captures land in `captures\`. `tools/rdc.sh <script>` runs a capture script headless.

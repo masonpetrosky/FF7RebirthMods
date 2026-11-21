@@ -20,7 +20,7 @@ stay in OUT_DIR (about 1 GB a state) for full-size crops; delete them afterwards
 --toggle NAME=VK compares something a key switches ON instead (states 'base' and 'NAME-on'), e.g. --toggle rr=0x7C
 --rounds 2 for NPC Motion's DLSS Ray Reconstruction against the game's DLSS (RayReconstructionKey=124, F13).
 The ray tracing's flicker A/B (its docs/plan.md, stage 2): --only raytracing --rounds 2 (all on, the game's shadows,
-all on, the game's shadows, all on: the three all-on states give the A/A floor).
+all on, the game's shadows, all on: the three all-on states give the A/A floor); its AO's (stage 3): --only ao.
 """
 import argparse
 import glob
@@ -50,6 +50,8 @@ SWITCHES = [
     ("preexposure", "DLSS pre-exposure", 0x73, False),       # F4
     # Delete: FF7RebirthRayTracing's SunShadowsKey (perf_session.py's switch 6); off = the game's shadows
     ("raytracing", "ray tracing's sun shadows", 0x2E, True),
+    # Insert: FF7RebirthRayTracing's RtAoKey (perf_session.py's switch 7, since 2026-11-20); off = the game's AO
+    ("ao", "ray tracing's AO", 0x2D, True),
 ]
 
 
