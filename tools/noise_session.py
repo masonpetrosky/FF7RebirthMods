@@ -20,7 +20,9 @@ stay in OUT_DIR (about 1 GB a state) for full-size crops; delete them afterwards
 --toggle NAME=VK compares something a key switches ON instead (states 'base' and 'NAME-on'), e.g. --toggle rr=0x7C
 --rounds 2 for NPC Motion's DLSS Ray Reconstruction against the game's DLSS (RayReconstructionKey=124, F13).
 The ray tracing's flicker A/B (its docs/plan.md, stage 2): --only raytracing --rounds 2 (all on, the game's shadows,
-all on, the game's shadows, all on: the three all-on states give the A/A floor); its AO's (stage 3): --only ao.
+all on, the game's shadows, all on: the three all-on states give the A/A floor); its AO's (stage 3): --only ao; its
+ambient light's (stage 5, which its ini starts with the game's: F2 switches ours ON): --toggle gi=0x71 --rounds 2,
+then its tools/shadow_ab.py RUN_DIR --ours gi-on --theirs base.
 """
 import argparse
 import glob
