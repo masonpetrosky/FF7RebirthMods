@@ -29,8 +29,11 @@ stronger reflections (its x100000 SSR weight, cut to x100 that day to stop the b
    view matrices. Any failure falls back to the game's SR call for that frame (logged once, counted).
 2. **Feature.** Created at the first RR evaluation and again when the output size, the render size limits or the mode
    change, with the create flags of the game's SR feature (as `CreateFeatureHook` sees them), denoise mode DLUnified,
-   roughness packed in the normals' .w, hardware depth, NVIDIA's default RR preset. Released when RR is switched off
-   for a while, at shutdown and before the game's NGX goes away.
+   roughness packed in the normals' .w, hardware depth, preset F asked by name for every mode (since 2026-11-20:
+   "Default model RR2", DLSS 4.5 Ray Reconstruction, the newest in NVIDIA's SDK 310.9.16; before it NVIDIA's
+   default, which in the game's own 310.3.0 is the older D). At its creation the log names the Ray Reconstruction
+   library loaded and its version. Released when RR is switched off for a while, at shutdown and before the game's
+   NGX goes away.
 3. **Guides** (port of `rr_guides.hlsl`, with this game's G-buffer as Shader Injector's 1.0.0.5 decoder reads it):
    GBufferA = normal x 0.5 + 0.5 and, in .a, the packed specular; GBufferB = metallic, -, roughness, shading model
    (low 4 bits of .a); GBufferC = base colour, material AO. Diffuse albedo = base colour x (1 - metallic); specular
@@ -148,6 +151,11 @@ and `-ssr-x100000-rr`, A/B/A with the RR key, the calmer of two windows per stat
 - The soft-edged hair fringe (Vegetation and Hair Fix) is blended into the colour before DLSS while the guides show
   only the opaque core: RR may smear or drop the fringe.
 - RR replaces SR's preset: the user's SR preset choice doesn't apply under RR.
+- The library: on 2026-11-20 NVIDIA's newest is SDK 310.9.16 (2026-10-16, bug fixes; preset F came with 310.9.1, no
+  later preset). Its `nvngx_dlssd.dll` (48,343,664 bytes, NVIDIA-signed, the SDK release's own file) replaces the
+  310.9.1 in the game's StreamlineSubset folder, where the game's NGX loads it from; the driver also keeps its own
+  copies (built in 310.9.0; fetched over the air 310.9.16, a 79.7 MB package). `tools/fetch_dlss_sdk.ps1` pins
+  310.9.16 for the headers and the test's library.
 - Reflections in motion: we don't give RR its optional reflection inputs (`DLSSD.SpecularHitDistance` or
   `GBuffer.SpecularMvec`; the reflection is Shader Injector's, and its hit distances never leave its shaders), so a
   moving camera may make strong reflections (x100000) trail or lag.

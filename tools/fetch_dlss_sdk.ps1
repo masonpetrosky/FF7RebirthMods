@@ -3,7 +3,7 @@
 # (NpcMotion/tests/rr_test.cpp). The SDK stays under NVIDIA's license (third_party\dlss\LICENSE.txt) and is not
 # committed to this repository; CI runs this script before building.
 param(
-  [string]$Version = 'v310.9.1',
+  [string]$Version = 'v310.9.16',
   [string]$Destination = (Join-Path $PSScriptRoot '..\third_party\dlss')
 )
 $ErrorActionPreference = 'Stop'

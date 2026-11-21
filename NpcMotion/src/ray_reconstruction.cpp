@@ -5,6 +5,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <tlhelp32.h>
 
 #include <d3d12.h>
 #include <wrl/client.h>
@@ -15,7 +16,9 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "kRrGuides.h"
@@ -105,6 +108,40 @@ std::string Hex(unsigned value) {
   char text[16];
   snprintf(text, sizeof(text), "0x%08X", value);
   return text;
+}
+
+// The Ray Reconstruction library NGX loaded into the process, with its version: the game's StreamlineSubset copy,
+// the driver's built-in one or a model NGX fetched over the air (its own file name: a .bin under ...\NGX\models\dlssd),
+// told apart by path. Logged at the feature's creation so a session shows which one runs.
+std::string LoadedRayReconstruction() {
+  std::string found;
+  const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+  if (snapshot == INVALID_HANDLE_VALUE) return "(the process's modules could not be listed)";
+  MODULEENTRY32W entry = {sizeof(entry)};
+  for (BOOL more = Module32FirstW(snapshot, &entry); more; more = Module32NextW(snapshot, &entry)) {
+    std::wstring path = entry.szExePath;
+    std::wstring lower = path;
+    for (wchar_t& c : lower) c = towlower(c);
+    if (lower.find(L"dlssd") == std::wstring::npos) continue;
+    std::string narrow;
+    for (const wchar_t c : path) narrow += c < 128 ? static_cast<char>(c) : '?';
+    // Its version stamp (the file's VS_FIXEDFILEINFO, through version.dll).
+    std::string version = "version unknown";
+    DWORD ignored = 0;
+    const DWORD size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
+    std::vector<uint8_t> info(size);
+    VS_FIXEDFILEINFO* fixed = nullptr;
+    UINT fixed_size = 0;
+    if (size != 0 && GetFileVersionInfoW(path.c_str(), 0, size, info.data()) &&
+        VerQueryValueW(info.data(), L"\\", reinterpret_cast<void**>(&fixed), &fixed_size) && fixed != nullptr &&
+        fixed_size >= sizeof(VS_FIXEDFILEINFO))
+      version = std::to_string(fixed->dwFileVersionMS >> 16) + "." + std::to_string(fixed->dwFileVersionMS & 0xFFFF) +
+                "." + std::to_string(fixed->dwFileVersionLS >> 16) + "." +
+                std::to_string(fixed->dwFileVersionLS & 0xFFFF);
+    found += (found.empty() ? "" : "; ") + narrow + " (" + version + ")";
+  }
+  CloseHandle(snapshot);
+  return found.empty() ? "(no Ray Reconstruction library among the process's modules)" : found;
 }
 
 // The development trace (Trace): lines left, and the time it was armed.
@@ -303,13 +340,15 @@ bool EnsureFeature(ID3D12GraphicsCommandList* list, const FeatureKey& key) {
     g_retired_features.push_back({g_feature, g_evaluations + kReleaseDelay});
     g_feature = nullptr;
   }
+  // Preset F, "Default model RR2": the newest model in NVIDIA's SDK 310.9.16 (2026-10-16), asked by name for every
+  // mode, so a library whose default is an older model (the game's own 310.3.0 defaults to D) cannot give us that one.
   for (const char* hint : {NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_DLAA,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Quality,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Balanced,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Performance,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraPerformance,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraQuality})
-    NVSDK_NGX_Parameter_SetUI(g_params, hint, NVSDK_NGX_RayReconstruction_Hint_Render_Preset_Default);
+    NVSDK_NGX_Parameter_SetUI(g_params, hint, NVSDK_NGX_RayReconstruction_Hint_Render_Preset_F);
   NVSDK_NGX_DLSSD_Create_Params create = {};
   create.InDenoiseMode = NVSDK_NGX_DLSS_Denoise_Mode_DLUnified;
   create.InRoughnessMode = NVSDK_NGX_DLSS_Roughness_Mode_Packed;  // the roughness in the normals' .w
@@ -327,10 +366,12 @@ bool EnsureFeature(ID3D12GraphicsCommandList* list, const FeatureKey& key) {
   const bool made = NVSDK_NGX_SUCCEED(result) && g_feature != nullptr;
   const std::string outcome = made ? "created" : "creation failed " + Hex(result);
   char line[256];
-  snprintf(line, sizeof(line), "Ray Reconstruction: feature for %ux%u -> %ux%u, quality mode %d, flags 0x%X%s: %s",
+  snprintf(line, sizeof(line),
+           "Ray Reconstruction: feature for %ux%u -> %ux%u, quality mode %d, flags 0x%X, preset F asked%s: %s",
            key.width, key.height, key.out_width, key.out_height, key.quality, create.InFeatureCreateFlags,
            recreated ? " (the game recreated its DLSS)" : "", outcome.c_str());
   Log(made ? 0 : 2, line);
+  if (made) Log(0, "Ray Reconstruction: running from " + LoadedRayReconstruction());
   if (!made) {
     g_feature = nullptr;
     g_key = {};

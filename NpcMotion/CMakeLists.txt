@@ -41,7 +41,7 @@ add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dls
   src/shader_reflection.cpp ${SHADER_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 target_include_directories(FF7RebirthNpcMotion PRIVATE src .. ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
 target_include_directories(FF7RebirthNpcMotion SYSTEM PRIVATE ${DLSS_SDK_DIR}/include)
-target_link_libraries(FF7RebirthNpcMotion PRIVATE d3d12 dxguid)
+target_link_libraries(FF7RebirthNpcMotion PRIVATE d3d12 dxguid version)
 
 # Offline check of Ray Reconstruction's path on this PC (D3D12 debug layer, NGX initialised like the game's, the game's
 # own nvngx_dlssd.dll): rr_test.exe <the game's Win64 folder> <scratch folder>.
@@ -50,7 +50,7 @@ if(EXISTS ${DLSS_SDK_DIR}/lib/nvsdk_ngx_s.lib)
   target_compile_definitions(rr_test PRIVATE NPCMOTION_RR_WITH_NGX_LIBRARY)
   target_include_directories(rr_test PRIVATE src ${SHADER_DIR})
   target_include_directories(rr_test SYSTEM PRIVATE ${DLSS_SDK_DIR}/include)
-  target_link_libraries(rr_test PRIVATE ${DLSS_SDK_DIR}/lib/nvsdk_ngx_s.lib d3d12 dxgi dxguid)
+  target_link_libraries(rr_test PRIVATE ${DLSS_SDK_DIR}/lib/nvsdk_ngx_s.lib d3d12 dxgi dxguid version)
 endif()
 set_target_properties(FF7RebirthNpcMotion PROPERTIES SUFFIX ".addon64")
 
