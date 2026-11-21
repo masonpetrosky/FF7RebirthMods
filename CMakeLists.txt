@@ -6,7 +6,6 @@ project(FF7RebirthMods LANGUAGES CXX)
 add_subdirectory(Anisotropic)
 add_subdirectory(FrameLimit)
 add_subdirectory(NpcMotion)
-add_subdirectory(ShaderInjectorSync)
 add_subdirectory(VegetationAndHairFix)
 
 # Investigation tool: samples the thread stacks of the running game (tools/cpu_profile.py reads its output).

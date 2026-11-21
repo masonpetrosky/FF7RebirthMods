@@ -12,7 +12,6 @@ FF7RebirthAnisotropic, FF7RebirthTextureUpscaler, all archived).
 | [Anisotropic Filtering](Anisotropic) | 16x anisotropic filtering instead of the game's fixed 4x | 0.1.0 | [2442](https://www.nexusmods.com/finalfantasy7rebirth/mods/2442) |
 | [Frame Limit](FrameLimit) | Replaces the game's 30/60/90/120 limit on rendered frames with one limit on the frames the display shows, frame generation included (3 below the refresh rate by default), and NVIDIA Reflex without frame generation | 0.1.0 | [2498](https://www.nexusmods.com/finalfantasy7rebirth/mods/2498) |
 | [Texture Upscaler](TextureUpscaler) | AI texture upscaling that builds a `~mods` package from your own install | source only | [2440](https://www.nexusmods.com/finalfantasy7rebirth/mods/2440) |
-| [Shader Injector Sync](ShaderInjectorSync) | Holds the game at startup until Shader Injector has hooked Direct3D 12, so quick relaunches keep its shaders | not released | |
 
 All but the Texture Upscaler are ReShade add-ons: they need ReShade 6.x with add-on support, and each zip is extracted
 into `FINAL FANTASY VII REBIRTH\End\Binaries\Win64`. The add-ons work together and with RenoDX HDR and Shader

@@ -11,7 +11,6 @@ them at once. Each mod still ships on its own (its own zip, Nexus page and relea
 | `NpcMotion/` | ReShade add-on: NPC motion vectors, DLSS settings; `docs/recon.md` is the main investigation log of the game's renderer | `FF7RebirthNpcMotion.addon64` + `.ini` + folder with `dxcompiler.dll` |
 | `Anisotropic/` | ReShade add-on: 16x anisotropic filtering | `FF7RebirthAnisotropic.addon64` + `.ini` |
 | `FrameLimit/` | ReShade add-on: one limit on the frames the display shows (frame generation included) instead of the game's 30-120 on rendered frames | `FF7RebirthFrameLimit.addon64` + `.ini` |
-| `ShaderInjectorSync/` | ReShade add-on: holds startup until Shader Injector has hooked D3D12 (retired 2026-11-08 with Shader Injector; never released) | `FF7RebirthShaderInjectorSync.addon64` + `.ini` |
 | `TextureUpscaler/` | Python: AI texture upscaling into a `~mods` IoStore package (its own `.venv`, `bin/`, `models/`, `work/`, all git-ignored) | `FF7RebirthTextureUpscaler_P.pak/.ucas/.utoc` in `Paks\~mods` |
 | `third_party/` | ReShade and Dear ImGui headers, DXIL hash (DXC); one copy for every add-on | |
 | `common/` | what every add-on does the same way, one copy for all: `addon.hpp` (its log lines, settings file and keys, after `ff7r::InitAddon(module, "<Mod>")`), `game_code.hpp` (the game's executable: sections, RIP-relative instructions, code writes, memory near the code, console variables; Frame Limit and NPC Motion) | (compiled into each add-on) |
@@ -89,3 +88,5 @@ FF7RebirthNpcMotion, FF7RebirthAnisotropic and FF7RebirthShaderInjectorSync. Eac
 (`git log --follow` works across the move); their tags are now `<Mod>-v<version>`, commit IDs changed (the
 old-to-new maps are kept with the original repositories in `..\..\Backups\Projects\2026-10-31-before-ff7-monorepo\`),
 and NPC Motion's shelved wind motion vector experiment is the branch `shelved/npcmotion-wind-motion-vectors`.
+Shader Injector Sync, retired with Shader Injector on 2026-11-08 and never released, left the repository on 2026-11-21
+(out of the build, CI and packaging); its source is in the history up to 8b4c6dd.
