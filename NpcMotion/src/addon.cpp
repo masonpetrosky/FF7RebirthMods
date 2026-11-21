@@ -43,6 +43,7 @@
 #include "descriptors.hpp"
 #include "dlss_probe.hpp"
 #include "ray_reconstruction.hpp"
+#include "rr_preset.hpp"
 #include "resolution_menu.hpp"
 #include "shader_reflection.hpp"
 #include "texture_bias_code.hpp"
@@ -186,6 +187,7 @@ using ff7r::KeyPressed;
 using ff7r::Log;
 using ff7r::ReadIniFloat;
 using ff7r::ReadIniInt;
+using ff7r::ReadIniString;
 using ff7r::WriteIniFloat;
 using ff7r::WriteIniInt;
 namespace code = ff7r::game_code;
@@ -954,6 +956,11 @@ void Initialize(HMODULE module) {
   g_rr_guide_key = ReadIniInt(L"RayReconstructionGuideKey", 0);
   npcmotion::rr::SetLogger(RrLog);
   npcmotion::rr::SetGuideView(ReadIniInt(L"RayReconstructionGuide", 0));
+  {
+    std::string preset;
+    for (const wchar_t c : ReadIniString(L"RayReconstructionPreset", L"Auto")) preset += static_cast<char>(c);
+    npcmotion::rr::SetPreset(npcmotion::rr::PresetFromText(preset));
+  }
   npcmotion::rr::SetWanted(ray_reconstruction);
   if (probe || pre_exposure || ray_reconstruction || g_rr_key != 0) {
     g_probe_key = probe ? ReadIniInt(L"DlssProbeKey", 117) : 0;  // F6

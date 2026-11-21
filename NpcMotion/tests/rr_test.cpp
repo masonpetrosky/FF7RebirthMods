@@ -466,6 +466,12 @@ int wmain(int argc, wchar_t** argv) {
   matrices.view_to_clip[11] = 1.0f;   // reverse-Z perspective, row vectors
   matrices.view_to_clip[14] = 10.0f;  // the near plane
   npcmotion::rr::SetLogger(OnRrLog);
+  // --preset D|E|F: that model asked for (by default the add-on's Auto, by this PC's card).
+  for (int i = 3; i + 1 < argc; ++i)
+    if (std::wstring(argv[i]) == L"--preset") {
+      const wchar_t letter = argv[i + 1][0];
+      npcmotion::rr::SetPreset(letter == L'D' ? 4u : letter == L'E' ? 5u : letter == L'F' ? 6u : 0u);
+    }
   npcmotion::rr::SetWanted(true);
 
   // One frame as the game has it: the base pass's binding, the G-buffer's transition to shader resources (on the GPU

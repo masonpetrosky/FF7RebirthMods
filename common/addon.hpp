@@ -56,6 +56,14 @@ inline void WriteIniInt(const wchar_t* key, int value) {
   WritePrivateProfileStringW(addon.section.c_str(), key, std::to_wstring(value).c_str(), addon.ini.c_str());
 }
 
+// `fallback` when the key is missing (at most 63 characters read).
+inline std::wstring ReadIniString(const wchar_t* key, const wchar_t* fallback) {
+  const Addon& addon = ThisAddon();
+  wchar_t text[64] = {};
+  GetPrivateProfileStringW(addon.section.c_str(), key, fallback, text, 64, addon.ini.c_str());
+  return text;
+}
+
 // `fallback` when the key is missing or not a finite number.
 inline float ReadIniFloat(const wchar_t* key, float fallback) {
   const Addon& addon = ThisAddon();

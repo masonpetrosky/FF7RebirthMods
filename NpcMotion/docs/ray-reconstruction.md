@@ -29,10 +29,9 @@ stronger reflections (its x100000 SSR weight, cut to x100 that day to stop the b
    view matrices. Any failure falls back to the game's SR call for that frame (logged once, counted).
 2. **Feature.** Created at the first RR evaluation and again when the output size, the render size limits or the mode
    change, with the create flags of the game's SR feature (as `CreateFeatureHook` sees them), denoise mode DLUnified,
-   roughness packed in the normals' .w, hardware depth, preset F asked by name for every mode (since 2026-11-20:
-   "Default model RR2", DLSS 4.5 Ray Reconstruction, the newest in NVIDIA's SDK 310.9.16; before it NVIDIA's
-   default, which in the game's own 310.3.0 is the older D). At its creation the log names the Ray Reconstruction
-   library loaded and its version. Released when RR is switched off for a while, at shutdown and before the game's
+   roughness packed in the normals' .w, hardware depth, the model asked by name for every mode ("Presets" below;
+   before 2026-11-20 NVIDIA's default, which in the game's own 310.3.0 is the older D). At its creation the log names
+   the model and why, and the Ray Reconstruction library loaded with its version. Released when RR is switched off for a while, at shutdown and before the game's
    NGX goes away.
 3. **Guides** (port of `rr_guides.hlsl`, with this game's G-buffer as Shader Injector's 1.0.0.5 decoder reads it):
    GBufferA = normal x 0.5 + 0.5 and, in .a, the packed specular; GBufferB = metallic, -, roughness, shading model
@@ -151,6 +150,13 @@ and `-ssr-x100000-rr`, A/B/A with the RR key, the calmer of two windows per stat
 - The soft-edged hair fringe (Vegetation and Hair Fix) is blended into the colour before DLSS while the guides show
   only the opaque core: RR may smear or drop the fringe.
 - RR replaces SR's preset: the user's SR preset choice doesn't apply under RR.
+- Presets (2026-11-20, `src/rr_preset.hpp`, the ini's `RayReconstructionPreset`: Auto, the default, or D, E, F):
+  F ("Default model RR2", DLSS 4.5 Ray Reconstruction) is the newest; its network runs in FP8, which only RTX 40
+  (Ada) and newer do in hardware, and reviewers measured it up to 29% slower on an RTX 2080 Ti (PCGH) and about
+  19% on an RTX 3090 (TechSpot) against DLSS 4. Auto asks F on RTX 40 and newer and D (DLSS 4's model) on RTX 20
+  and 30, by the card's name (GeForce, laptop, RTX A and Quadro/Titan RTX names: `tests/rr_preset_test.cpp`, in
+  CI); a card it does not know gets F. E is D's variant for games with a depth-of-field guide (none here). NGX's
+  log shows the model used (`Using Default Overriden Preset Preset_F` / `Preset_D`, rr_test with `--preset D`).
 - The library: on 2026-11-20 NVIDIA's newest is SDK 310.9.16 (2026-10-16, bug fixes; preset F came with 310.9.1, no
   later preset). Its `nvngx_dlssd.dll` (48,343,664 bytes, NVIDIA-signed, the SDK release's own file) replaces the
   310.9.1 in the game's StreamlineSubset folder, where the game's NGX loads it from; the driver also keeps its own

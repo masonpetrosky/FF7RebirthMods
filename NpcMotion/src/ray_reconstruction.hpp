@@ -30,6 +30,9 @@ struct Matrices {
 void SetLogger(void (*log)(int level, const char* text));
 // Wanted for this session (the ini's RayReconstruction, the overlay, the key).
 void SetWanted(bool on);
+// The model asked for (rr_preset.hpp: kPresetAuto, the default, chooses by the graphics card; or D, E, F), from the
+// ini's RayReconstructionPreset; taken at the feature's next creation.
+void SetPreset(uint32_t preset);
 bool wanted();
 // Development: shows one guide over DLSS's output (0 off, 1 diffuse albedo, 2 specular albedo, 3 normals, 4 roughness).
 void SetGuideView(int guide);

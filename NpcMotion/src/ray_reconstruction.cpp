@@ -21,7 +21,10 @@
 #include <string>
 #include <vector>
 
+#include <dxgi1_6.h>
+
 #include "kRrGuides.h"
+#include "rr_preset.hpp"
 #include "kRrShowGuide.h"
 
 namespace npcmotion::rr {
@@ -142,6 +145,40 @@ std::string LoadedRayReconstruction() {
   }
   CloseHandle(snapshot);
   return found.empty() ? "(no Ray Reconstruction library among the process's modules)" : found;
+}
+
+// The model asked for: the ini's (kPresetAuto: by the card, resolved once) and the one in use, with why.
+std::atomic<uint32_t> g_preset_setting{kPresetAuto};
+uint32_t g_preset = 0;
+std::string g_preset_why;
+
+// The name of the adapter `device` runs on ("NVIDIA GeForce RTX 5070 Ti"), empty when DXGI cannot tell.
+std::string AdapterName(ID3D12Device* device) {
+  if (device == nullptr) return "";
+  ComPtr<IDXGIFactory4> factory;
+  ComPtr<IDXGIAdapter1> adapter;
+  DXGI_ADAPTER_DESC1 desc = {};
+  if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) ||
+      FAILED(factory->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) ||
+      FAILED(adapter->GetDesc1(&desc)))
+    return "";
+  std::string name;
+  for (const wchar_t* c = desc.Description; *c != 0; ++c) name += *c < 128 ? static_cast<char>(*c) : '?';
+  return name;
+}
+
+// The preset to ask for now (and g_preset_why): the ini's, or Auto's by the card.
+uint32_t ChoosePreset(ID3D12Device* device) {
+  const uint32_t setting = g_preset_setting.load();
+  if (setting != kPresetAuto) {
+    g_preset_why = "the ini's RayReconstructionPreset";
+    return setting;
+  }
+  const std::string adapter = AdapterName(device);
+  std::string why;
+  const uint32_t preset = AutoPreset(adapter, &why);
+  g_preset_why = "Auto: " + (adapter.empty() ? std::string("(card unknown)") : adapter) + ", " + why;
+  return preset;
 }
 
 // The development trace (Trace): lines left, and the time it was armed.
@@ -340,15 +377,19 @@ bool EnsureFeature(ID3D12GraphicsCommandList* list, const FeatureKey& key) {
     g_retired_features.push_back({g_feature, g_evaluations + kReleaseDelay});
     g_feature = nullptr;
   }
-  // Preset F, "Default model RR2": the newest model in NVIDIA's SDK 310.9.16 (2026-10-16), asked by name for every
-  // mode, so a library whose default is an older model (the game's own 310.3.0 defaults to D) cannot give us that one.
+  // The model by name for every mode (rr_preset.hpp): F, "Default model RR2", the newest in NVIDIA's SDK 310.9.16
+  // (2026-10-16), on RTX 40 and newer; D, DLSS 4's, on RTX 20 and 30, which run F's FP8 network slowly; or the ini's.
+  // By name, so a library whose default is an older model (the game's own 310.3.0 defaults to D) cannot choose.
+  ComPtr<ID3D12Device> device;  // the list's (the guides pass may not be made yet)
+  list->GetDevice(IID_PPV_ARGS(&device));
+  g_preset = ChoosePreset(device.Get());
   for (const char* hint : {NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_DLAA,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Quality,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Balanced,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Performance,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraPerformance,
                            NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_UltraQuality})
-    NVSDK_NGX_Parameter_SetUI(g_params, hint, NVSDK_NGX_RayReconstruction_Hint_Render_Preset_F);
+    NVSDK_NGX_Parameter_SetUI(g_params, hint, g_preset);
   NVSDK_NGX_DLSSD_Create_Params create = {};
   create.InDenoiseMode = NVSDK_NGX_DLSS_Denoise_Mode_DLUnified;
   create.InRoughnessMode = NVSDK_NGX_DLSS_Roughness_Mode_Packed;  // the roughness in the normals' .w
@@ -365,11 +406,12 @@ bool EnsureFeature(ID3D12GraphicsCommandList* list, const FeatureKey& key) {
   const NVSDK_NGX_Result result = NGX_D3D12_CREATE_DLSSD_EXT(list, 1, 1, &g_feature, g_params, &create);
   const bool made = NVSDK_NGX_SUCCEED(result) && g_feature != nullptr;
   const std::string outcome = made ? "created" : "creation failed " + Hex(result);
-  char line[256];
+  char line[512];
   snprintf(line, sizeof(line),
-           "Ray Reconstruction: feature for %ux%u -> %ux%u, quality mode %d, flags 0x%X, preset F asked%s: %s",
+           "Ray Reconstruction: feature for %ux%u -> %ux%u, quality mode %d, flags 0x%X, preset %c asked (%s)%s: %s",
            key.width, key.height, key.out_width, key.out_height, key.quality, create.InFeatureCreateFlags,
-           recreated ? " (the game recreated its DLSS)" : "", outcome.c_str());
+           PresetLetter(g_preset), g_preset_why.c_str(), recreated ? " (the game recreated its DLSS)" : "",
+           outcome.c_str());
   Log(made ? 0 : 2, line);
   if (made) Log(0, "Ray Reconstruction: running from " + LoadedRayReconstruction());
   if (!made) {
@@ -616,6 +658,8 @@ void ShowGuide(ID3D12GraphicsCommandList* list, ID3D12Resource* output, uint32_t
 }  // namespace
 
 void SetLogger(void (*log)(int level, const char* text)) { g_log = log; }
+
+void SetPreset(uint32_t preset) { g_preset_setting = preset; }
 
 void SetWanted(bool on) {
   const bool was = g_wanted.exchange(on);

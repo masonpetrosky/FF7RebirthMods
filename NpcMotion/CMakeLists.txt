@@ -41,7 +41,7 @@ add_library(FF7RebirthNpcMotion SHARED src/addon.cpp src/descriptors.cpp src/dls
   src/shader_reflection.cpp ${SHADER_HEADERS} ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 target_include_directories(FF7RebirthNpcMotion PRIVATE src .. ${SHADER_DIR} ../third_party/reshade ../third_party/imgui)
 target_include_directories(FF7RebirthNpcMotion SYSTEM PRIVATE ${DLSS_SDK_DIR}/include)
-target_link_libraries(FF7RebirthNpcMotion PRIVATE d3d12 dxguid version)
+target_link_libraries(FF7RebirthNpcMotion PRIVATE d3d12 dxgi dxguid version)
 
 # Offline check of Ray Reconstruction's path on this PC (D3D12 debug layer, NGX initialised like the game's, the game's
 # own nvngx_dlssd.dll): rr_test.exe <the game's Win64 folder> <scratch folder>.
@@ -53,6 +53,10 @@ if(EXISTS ${DLSS_SDK_DIR}/lib/nvsdk_ngx_s.lib)
   target_link_libraries(rr_test PRIVATE ${DLSS_SDK_DIR}/lib/nvsdk_ngx_s.lib d3d12 dxgi dxguid version)
 endif()
 set_target_properties(FF7RebirthNpcMotion PROPERTIES SUFFIX ".addon64")
+
+# Offline check of the Ray Reconstruction model chosen by the graphics card's name (src/rr_preset.hpp).
+add_executable(rr_preset_test tests/rr_preset_test.cpp)
+target_include_directories(rr_preset_test PRIVATE src)
 
 # Offline check of the bone register lookup against shaders saved from a capture (tools/rdc_shaderdump.py).
 add_executable(reflect_test tests/reflect_test.cpp src/shader_reflection.cpp)
