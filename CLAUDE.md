@@ -59,7 +59,8 @@ relative to the repository root unless the doc says otherwise.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, F3 and F11 = the game (F11 toggles
   windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation and Hair Fix (set in the installed ini; the
   shipped ini has no keys), Page Up = Frame Limit (installed ini only), F13/F15 = NPC Motion's Ray Reconstruction
-  test keys and F14 = Frame Limit's Reflex test key (keys the keyboard doesn't have, for scripted tests), Delete =
+  test keys, F14 = Frame Limit's Reflex test key and F16 = our ray tracing's probes test key (`ProbesTestKey`, test
+  sessions' ini only, since 2026-11-22) (keys the keyboard doesn't have, for scripted tests), Delete =
   our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15),
   Insert = its AO, ours or the game's (`RtAoKey`, since 2026-11-20), F2 = its ambient light, ours or the game's
   (`GiKey`, stage 5, since 2026-11-21; the game binds F1 and F2 only in its debug configs). Avoid F10, which Windows
