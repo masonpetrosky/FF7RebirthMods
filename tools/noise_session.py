@@ -23,6 +23,9 @@ The ray tracing's flicker A/B (its docs/plan.md, stage 2): --only raytracing --r
 all on, the game's shadows, all on: the three all-on states give the A/A floor); its AO's (stage 3): --only ao; its
 ambient light's (stage 5, which its ini starts with the game's: F2 switches ours ON): --toggle gi=0x71 --rounds 2,
 then its tools/shadow_ab.py RUN_DIR --ours gi-on --theirs base.
+--back N presses a toggle's key N times to switch it back, for a key that cycles more than two states: the ray
+tracing's ProbesTestKey (F16 in its test sessions' ini) cycles the probes' default sampling, DDGI's and a test view, so
+--toggle ddgi=0x7F --back 2 --rounds 2 compares the default (base) with DDGI's (ddgi-on).
 """
 import argparse
 import glob
@@ -134,6 +137,8 @@ def main():
                         help="instead of the mods' switches, a key that switches something ON, e.g. rr=0x7C (NPC "
                              "Motion's Ray Reconstruction on F13); the states are then 'base' and '<NAME>-on'")
     parser.add_argument("--rounds", type=int, default=1, help="times through the switches (default 1)")
+    parser.add_argument("--back", type=int, default=1,
+                        help="presses of a --toggle key that switch it back (default 1; 2 for a three-state cycle)")
     parser.add_argument("--analyse-only", action="store_true", help="analyse the raw frames already in OUT_DIR")
     parser.add_argument("--capture-only", action="store_true", help="record, then leave the analysis for later")
     args = parser.parse_args()
@@ -145,9 +150,11 @@ def main():
             name, _, key = toggle.partition("=")
             switches.append((name, name, int(key.removesuffix(":ext"), 0), key.endswith(":ext")))
         base, suffix = "base", "-on"
+        back = max(1, args.back)
     else:
         switches = [s for s in SWITCHES if not args.only or s[0] in args.only.split(",")]
         base, suffix = "all-on", "-off"
+        back = 1
     switches = switches * args.rounds
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -181,17 +188,25 @@ def main():
                 if not tap(vk, extended, 0):
                     raise RuntimeError("the game left the front")
                 off = (key, label, vk, extended)
+                presses_left = back
                 capture(f"{key}{suffix}")
-                if not tap(vk, extended, 600):
-                    raise RuntimeError(f"could not switch {label} back")
+                while presses_left > 0:
+                    if not tap(vk, extended, 600):
+                        raise RuntimeError(f"could not switch {label} back")
+                    presses_left -= 1
+                    if presses_left > 0:
+                        time.sleep(0.5)
                 off = None
                 capture(base)
         finally:
             if off is not None:
-                if tap(off[2], off[3], 600):
+                while presses_left > 0 and tap(off[2], off[3], 600):
+                    presses_left -= 1
+                    time.sleep(0.5)
+                if presses_left == 0:
                     print(f"{off[1]} switched back")
                 else:
-                    print(f"WARNING: {off[1]} is still switched; press its key in the game")
+                    print(f"WARNING: {off[1]} is still switched; press its key {presses_left} more time(s) in the game")
         print("Done; the game can be played again.", flush=True)
         if args.capture_only:
             return
