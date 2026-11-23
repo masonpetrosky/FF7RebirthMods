@@ -27,8 +27,10 @@ then its tools/shadow_ab.py RUN_DIR --ours gi-on --theirs base.
 the ray tracing's ProbesTestKey (F16 in its test sessions' ini) cycles five (since its lamps build 4, 2026-11-22): the
 default, the probes' build 7 rules, DDGI's sampling, the share behind shown, and the lamps left out of the probes' rays
 (with ProbesLamps=1). So --toggle ddgi=0x7F --on 2 --back 3 --rounds 2 compares the default (base) with DDGI's
-(ddgi-on), and --toggle nolamps=0x7F --on 4 --back 1 --rounds 2 the lamps' bounce in the probes (base) with none
-(nolamps-on).
+(ddgi-on), and --toggle nolamps=0x7F --on 4 --back 1 --settle 16 --rounds 2 the lamps' bounce in the probes (base)
+with none (nolamps-on). Leaving or entering the lamps-out state restarts the probes' change of light (640 frames, about
+13 s at the 48 fps of a lamp-lit bar), noisier while it lasts: --settle 16 records after it (session 44, 2026-11-23,
+settled 3 s, recorded inside it and its two all-on states differed more than the lamps did).
 """
 import argparse
 import glob
