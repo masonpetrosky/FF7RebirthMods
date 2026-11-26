@@ -5,7 +5,9 @@ each state (base, then NAME switched by its key, base again; --rounds times) it 
 moves (--speed pixels every 1/100 s, to the right, for --seconds) while recording the screen in HDR (as
 noise_session.py does: ffmpeg ddagrab, 16-bit float scRGB, each new frame once, at most --fps a second), keeps
 recording --hold seconds after the turn (the history catching up), then turns the camera back without recording, so
-that every state sees the same turn from the same start. A switched state is always switched back.
+that every state sees the same turn from the same start. With --move KEYS (e.g. W:S) it instead holds the first key
+(Cloud runs forward, the camera following) and returns with the second; --speed 0 with it: no mouse turn. A switched
+state is always switched back, and a held key always let go.
 Then, per state, <state>-NN.png for every recorded frame (SDR, noise_session.py's mapping, half size; the raw frames
 stay in OUT_DIR for full-size crops: delete them afterwards), and printed: how far the picture moved between the first
 and last frame of the turn (the mean absolute difference of PQ luminance; near 0: the camera did not turn, so the game
@@ -45,8 +47,33 @@ def turn(speed, seconds):
         time.sleep(max(0.0, next_step - time.perf_counter()))
 
 
+KEYEVENTF_KEYUP = 0x0002
+
+
+def key(vk, down):
+    """A letter key (W, A, S, D) down or up in the game, by its scan code as the keyboard sends it."""
+    scan = user32.MapVirtualKeyW(vk, 0)
+    user32.keybd_event(vk, scan, 0 if down else KEYEVENTF_KEYUP, 0)
+
+
+def move(args, forward):
+    """The turn (--speed) and, with --move, its key held (the first going, the second coming back)."""
+    held = None
+    if args.move:
+        held = ord(args.move.split(":")[0 if forward else 1].upper())
+        while not game_in_front():
+            time.sleep(0.1)
+        key(held, True)
+    try:
+        turn(args.speed if forward else -args.speed, args.seconds)
+    finally:
+        if held is not None:
+            key(held, False)
+
+
 def record_turn(path, args):
-    """Records while the camera turns and for --hold seconds after; returns the frames recorded."""
+    """Records while the camera turns (and Cloud runs, with --move) and for --hold seconds after; returns the frames
+    recorded."""
     frames = int((args.seconds + args.hold) * args.fps) + 2
     cmd = [FFMPEG[0], "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
            f"ddagrab=output_idx=0:framerate={args.fps}:output_fmt=16bit:dup_frames=0:draw_mouse=0",
@@ -54,7 +81,7 @@ def record_turn(path, args):
            "-f", "rawvideo", path]
     recorder = subprocess.Popen(cmd)
     time.sleep(0.3)  # ffmpeg's first frame
-    turn(args.speed, args.seconds)
+    move(args, True)
     try:
         recorder.wait(timeout=args.hold + 30)
     except subprocess.TimeoutExpired:
@@ -76,6 +103,8 @@ def main():
     parser.add_argument("--fps", type=int, default=10, help="frames recorded a second at most (default 10)")
     parser.add_argument("--settle", type=float, default=3.0, help="seconds after a switch (default 3)")
     parser.add_argument("--rounds", type=int, default=1, help="times through base and switched (default 1)")
+    parser.add_argument("--move", default="", metavar="GO:BACK",
+                        help="movement keys held while turning, going and coming back (e.g. W:S; default none)")
     args = parser.parse_args()
 
     name, _, key = args.toggle.partition("=")
@@ -102,7 +131,7 @@ def main():
             label = f"{i}-{state}"
             raw = os.path.join(args.out_dir, label + ".raw")
             n = record_turn(raw, args)
-            turn(-args.speed, args.seconds)  # back to the start, not recorded
+            move(args, False)  # back to the start, not recorded
             time.sleep(1.0)
             labels.append((label, raw, n))
             print(f"{label}: {n} frames", flush=True)
