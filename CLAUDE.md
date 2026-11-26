@@ -14,7 +14,7 @@ them at once. Each mod still ships on its own (its own zip, Nexus page and relea
 | `TextureUpscaler/` | Python: AI texture upscaling into a `~mods` IoStore package (its own `.venv`, `bin/`, `models/`, `work/`, all git-ignored) | `FF7RebirthTextureUpscaler_P.pak/.ucas/.utoc` in `Paks\~mods` |
 | `third_party/` | ReShade and Dear ImGui headers, DXIL hash (DXC); one copy for every add-on | |
 | `common/` | what every add-on does the same way, one copy for all: `addon.hpp` (its log lines, settings file and keys, after `ff7r::InitAddon(module, "<Mod>")`), `game_code.hpp` (the game's executable: sections, RIP-relative instructions, code writes, memory near the code, console variables; Frame Limit and NPC Motion) | (compiled into each add-on) |
-| `tools/` | Game-wide investigation scripts: `launch_rdc.ps1` (game under RenderDoc), `rdc.sh` + `rdc_*.py` (read captures), `disasm.py`, `xref*.py`, `callers.py`, `memread.py` (the exe), `decode_png16.ps1` + `shot_bands.py` (HDR screenshots), `perf_session.py` + `perf_report.py` (frame times at one spot with each mod switched off and on by its key), `noise_session.py` (where the picture flickers at one spot, each mod switched off by its key: HDR ffmpeg bursts, flicker maps, A/A floor), `cpu_sampler.cpp` + `cpu_profile.py` (where the game's CPU time goes, per thread and module) + `cpu_symbols.py` (one module's share by function and source line, from its PDB: FF7RebirthRayTracing's builds carry one; `--callers NAME` for who calls a function, e.g. `_malloc_base`), `gpu_timer.cpp` (development add-on: Shader Injector's passes timed on the GPU) | |
+| `tools/` | Game-wide investigation scripts: `launch_rdc.ps1` (game under RenderDoc), `rdc.sh` + `rdc_*.py` (read captures), `disasm.py`, `xref*.py`, `callers.py`, `memread.py` (the exe), `decode_png16.ps1` + `shot_bands.py` (HDR screenshots), `perf_session.py` + `perf_report.py` (frame times at one spot with each mod switched off and on by its key), `noise_session.py` (where the picture flickers at one spot, each mod switched off by its key: HDR ffmpeg bursts, flicker maps, A/A floor), `orbit_session.py` (what a key's switch does while the camera turns: the same mouse turn recorded in HDR in each state, for smear and lag), `cpu_sampler.cpp` + `cpu_profile.py` (where the game's CPU time goes, per thread and module) + `cpu_symbols.py` (one module's share by function and source line, from its PDB: FF7RebirthRayTracing's builds carry one; `--callers NAME` for who calls a function, e.g. `_malloc_base`), `gpu_timer.cpp` (development add-on: Shader Injector's passes timed on the GPU) | |
 | `captures/` | git-ignored: every RenderDoc capture of the game and what the tools dumped from them (e.g. the Kalm capture `ff7r_frame8775.rdc`) | |
 | `gamedata/` | git-ignored: the game's own config files, unpacked from its pak | |
 
@@ -59,11 +59,13 @@ relative to the repository root unless the doc says otherwise.
 - Keys already taken: Home = ReShade overlay, Page Down = ReShade screenshot, F3 and F11 = the game (F11 toggles
   windowed mode), F4/F5/F7 and End = NPC Motion, F6/F8/F9 = Vegetation and Hair Fix (set in the installed ini; the
   shipped ini has no keys), Page Up = Frame Limit (installed ini only), F13/F15 = NPC Motion's Ray Reconstruction
-  test keys, F14 = Frame Limit's Reflex test key and F16 = our ray tracing's probes test key (`ProbesTestKey`, test
-  sessions' ini only, since 2026-11-22) (keys the keyboard doesn't have, for scripted tests), Delete =
+  test keys, F14 = Frame Limit's Reflex test key, F16 = our ray tracing's probes test key (`ProbesTestKey`, test
+  sessions' ini only, since 2026-11-22) and F17 = its reflections, ours or the game's (`ReflectionsKey`, test sessions'
+  ini only, since 2026-11-25) (keys the keyboard doesn't have, for scripted tests), Delete =
   our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15),
   Insert = its AO, ours or the game's (`RtAoKey`, since 2026-11-20), F2 = its ambient light, ours or the game's
-  (`GiKey`, stage 5, since 2026-11-21; the game binds F1 and F2 only in its debug configs). Avoid F10, which Windows
+  (`GiKey`, stage 5, since 2026-11-21), F1 = its ambient light's quality, low to ultra in turn (`AmbientQualityKey`,
+  installed ini only, since 2026-11-23; the game binds F1 and F2 only in its debug configs). Avoid F10, which Windows
   treats as the menu key, and F12, Steam's screenshot key. Check this list before adding a key.
 - RenderDoc: `tools\launch_rdc.ps1` starts the game under RenderDoc 1.47 (since 2026-11-15; Kalm read the same as
   with 1.46) with every hook DLL switched off for the session (DLSS does not run under RenderDoc) and `tools\psopatch.py` working around the game's pipeline-library

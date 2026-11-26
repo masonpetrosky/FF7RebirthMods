@@ -7,6 +7,8 @@ have a hotkey off and on in turn, each for S seconds (A/B/A, N rounds):
   Delete  the ray tracing's sun shadows (FF7RebirthRayTracing; switched off, the game's own shadows)
   Insert  the ray tracing's AO (switched off, the game's own AO)
   F2  the ray tracing's ambient light (stage 5; switched ON, as its ini starts with the game's): only with --only 8
+  F17 the ray tracing's reflections (stage 6; ReflectionsKey in its test sessions' ini, a key no keyboard here has;
+      switched off: the game's own reflections, with our ambient light on): only with --only 9
 (Switch 1, Shader Injector, stays in the list so the numbers keep their meaning, but the game no longer has it
 (removed 2026-11-08), and its key, Delete, is the ray tracing's now: switch 6.)
 Then it samples the game's busiest CPU threads for --profile seconds with build/cpu_sampler.exe, and with
@@ -51,6 +53,9 @@ SWITCHES = [
     # Switches the ray tracing's ambient light ON (its GiKey, stage 5, with GiOn=0 in the ini: the game's at the
     # start): its "off" segments are ours. Not in the default run: --only 8.
     ("ray tracing's ambient light (switched on)", 0x71, False),  # F2 (since 2026-11-21)
+    # Switches the ray tracing's reflections off (its ReflectionsKey, stage 6, test sessions only: ours at the start
+    # while its ambient light is on): its "off" segments are the game's. Not in the default run: --only 9.
+    ("ray tracing's reflections", 0x80, False),  # F17 (since 2026-11-25)
 ]
 DEFAULT_SWITCHES = (2, 3, 4, 6, 7)  # switch numbers of the default run: the installed mods' own switches
 
@@ -125,10 +130,10 @@ def main():
     parser.add_argument("--profile", type=float, default=15.0, help="seconds of CPU sampling at the end, 0 = none")
     parser.add_argument("--profile-off", action="store_true",
                         help="after the CPU sample with all on, another with the first tested switch off")
-    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-8; 1 = Shader Injector, "
+    parser.add_argument("--only", default="", help="comma-separated switch numbers to test (1-9; 1 = Shader Injector, "
                                                    "no longer installed; 5 = NPC Motion's Ray Reconstruction; 6 = the "
                                                    "ray tracing's sun shadows; 7 = its AO; 8 = its ambient light, "
-                                                   "switched on), default 2-4, 6 and 7")
+                                                   "switched on; 9 = its reflections, F17), default 2-4, 6 and 7")
     parser.add_argument("--no-keys", action="store_true", help="press nothing: the same segments, all on")
     args = parser.parse_args()
 
