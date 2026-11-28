@@ -7,7 +7,8 @@ noise_session.py does: ffmpeg ddagrab, 16-bit float scRGB, each new frame once, 
 recording --hold seconds after the turn (the history catching up), then turns the camera back without recording, so
 that every state sees the same turn from the same start. With --move KEYS (e.g. W:S) it instead holds the first key
 (Cloud runs forward, the camera following) and returns with the second; --speed 0 with it: no mouse turn. A switched
-state is always switched back, and a held key always let go.
+state is always switched back, and a held key always let go. With --manual nothing is injected: each state records
+--seconds while the user plays (runs about, turns the camera), for the A/B of what a person does that a script cannot.
 Then, per state, <state>-NN.png for every recorded frame (SDR, noise_session.py's mapping, half size; the raw frames
 stay in OUT_DIR for full-size crops: delete them afterwards), and printed: how far the picture moved between the first
 and last frame of the turn (the mean absolute difference of PQ luminance; near 0: the camera did not turn, so the game
@@ -57,7 +58,12 @@ def key(vk, down):
 
 
 def move(args, forward):
-    """The turn (--speed) and, with --move, its key held (the first going, the second coming back)."""
+    """The turn (--speed) and, with --move, its key held (the first going, the second coming back); with --manual only
+    the wait while the user plays."""
+    if args.manual:
+        if forward:
+            time.sleep(args.seconds)
+        return
     held = None
     if args.move:
         held = ord(args.move.split(":")[0 if forward else 1].upper())
@@ -105,6 +111,8 @@ def main():
     parser.add_argument("--rounds", type=int, default=1, help="times through base and switched (default 1)")
     parser.add_argument("--move", default="", metavar="GO:BACK",
                         help="movement keys held while turning, going and coming back (e.g. W:S; default none)")
+    parser.add_argument("--manual", action="store_true",
+                        help="no injected input: each state records --seconds while the user plays")
     args = parser.parse_args()
 
     name, _, key = args.toggle.partition("=")
