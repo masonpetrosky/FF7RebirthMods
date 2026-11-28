@@ -61,7 +61,8 @@ relative to the repository root unless the doc says otherwise.
   shipped ini has no keys), Page Up = Frame Limit (installed ini only), F13/F15 = NPC Motion's Ray Reconstruction
   test keys, F14 = Frame Limit's Reflex test key, F16 = our ray tracing's probes test key (`ProbesTestKey`, test
   sessions' ini only, since 2026-11-22) and F17 = its reflections, ours or the game's (`ReflectionsKey`, test sessions'
-  ini only, since 2026-11-25) (keys the keyboard doesn't have, for scripted tests), Delete =
+  ini only, since 2026-11-25), F18 = its RR form, every effect as NVIDIA's Ray Reconstruction guide asks or today's (`RrFormKey`, test sessions' ini
+  only, since 2026-11-27) (keys the keyboard doesn't have, for scripted tests), Delete =
   our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15),
   Insert = its AO, ours or the game's (`RtAoKey`, since 2026-11-20), F2 = its ambient light, ours or the game's
   (`GiKey`, stage 5, since 2026-11-21), F1 = its ambient light's quality, low to ultra in turn (`AmbientQualityKey`,
