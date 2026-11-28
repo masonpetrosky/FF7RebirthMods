@@ -18,6 +18,10 @@ $headers = @(
 $files = @{
   'LICENSE.txt' = 'LICENSE.txt'
   'lib/Windows_x86_64/x64/nvsdk_ngx_s.lib' = 'lib/nvsdk_ngx_s.lib'
+  # NVIDIA's guides to what the headers expect (how Ray Reconstruction is meant to be fed: FF7RebirthRayTracing's
+  # docs/recon.md, "NVIDIA's Ray Reconstruction guide against our inputs").
+  'doc/DLSS-RR Integration Guide.pdf' = 'doc/DLSS-RR Integration Guide.pdf'
+  'doc/DLSS_Programming_Guide_Release.pdf' = 'doc/DLSS_Programming_Guide_Release.pdf'
 }
 foreach ($h in $headers) { $files["include/$h"] = "include/$h" }
 
