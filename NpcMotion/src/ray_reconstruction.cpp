@@ -103,6 +103,34 @@ namespace {
 
 void (*g_log)(int level, const char* text) = nullptr;
 
+// Our ray tracing's specular hit distance (FF7RebirthRayTracing's export FF7RT_SpecularHitDistance; its docs/plan.md,
+// stage 6, "Every effect as NVIDIA intends"): the guide reflections need (NVIDIA's DLSS-RR Integration Guide, 3.4.9),
+// an R32_FLOAT texture of world cm from the primary surface to the reflection's first hit, 65504 at the sky, in
+// NON_PIXEL_SHADER_RESOURCE as DLSS reads its inputs. Given while that add-on's RR form of its reflections runs and its
+// count of writes moves on (a stale texture, after two evaluations with no new write, is not given).
+ID3D12Resource* RayTracingHitDistance() {
+  using Export = int (*)(void**, unsigned long long*);
+  static Export get = nullptr;
+  if (get == nullptr) {
+    const HMODULE module = GetModuleHandleW(L"FF7RebirthRayTracing.addon64");
+    if (module == nullptr) return nullptr;
+    get = reinterpret_cast<Export>(GetProcAddress(module, "FF7RT_SpecularHitDistance"));
+    if (get == nullptr) return nullptr;
+  }
+  void* texture = nullptr;
+  unsigned long long stamp = 0;
+  if (get(&texture, &stamp) == 0 || texture == nullptr) return nullptr;
+  static unsigned long long last = 0;
+  static int unchanged = 0;
+  if (stamp == last) {
+    if (++unchanged > 2) return nullptr;
+  } else {
+    last = stamp;
+    unchanged = 0;
+  }
+  return static_cast<ID3D12Resource*>(texture);
+}
+
 void Log(int level, const std::string& text) {
   if (g_log != nullptr) g_log(level, text.c_str());
 }
@@ -805,6 +833,15 @@ bool Evaluate(ID3D12GraphicsCommandList* list, NVSDK_NGX_Parameter* game, float 
   eval.InPreExposure = pre_exposure > 0.0f ? pre_exposure : 1.0f;
   eval.InExposureScale = GetF(game, NVSDK_NGX_Parameter_DLSS_Exposure_Scale, 1.0f);
   eval.InFrameTimeDeltaInMsec = GetF(game, NVSDK_NGX_Parameter_FrameTimeDeltaInMsec, 0.0f);
+  // The specular hit distance from our ray tracing's reflections, with the matrices above (NVIDIA's guide, 3.4.9).
+  ID3D12Resource* const hit_distance = RayTracingHitDistance();
+  eval.pInSpecularHitDistance = hit_distance;
+  static bool hit_distance_given = false;
+  if ((hit_distance != nullptr) != hit_distance_given) {
+    hit_distance_given = hit_distance != nullptr;
+    Log(0, hit_distance_given ? "Ray Reconstruction: the specular hit distance from FF7RebirthRayTracing's reflections."
+                              : "Ray Reconstruction: no specular hit distance.");
+  }
   const NVSDK_NGX_Result result = NGX_D3D12_EVALUATE_DLSSD_EXT(list, g_feature, g_params, &eval);
   if (NVSDK_NGX_FAILED(result)) return Fallback("Ray Reconstruction's evaluation failed " + Hex(result));
 

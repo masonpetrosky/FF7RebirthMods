@@ -166,3 +166,14 @@ and `-ssr-x100000-rr`, A/B/A with the RR key, the calmer of two windows per stat
   `GBuffer.SpecularMvec`; the reflection is Shader Injector's, and its hit distances never leave its shaders), so a
   moving camera may make strong reflections (x100000) trail or lag.
 - A second NGX feature in the game's context: release it before the game's NGX shuts down (device loss, exit).
+
+## The specular hit distance from FF7RebirthRayTracing (2026-11-27)
+
+NVIDIA's DLSS-RR Integration Guide (3.4.9; `third_party/dlss/doc`, fetched with the SDK) names the specular hit
+distance, or specular motion vectors, as what reflections need to be denoised in motion; this evaluation gave neither.
+Our ray tracing's reflections (FF7RebirthRayTracing, its "RR form": every pixel's own ray a frame, nothing averaged)
+now write each pixel's first hit distance (R32_FLOAT, world cm, 65504 at the sky, in NON_PIXEL_SHADER_RESOURCE) and
+export it as `FF7RT_SpecularHitDistance`; `RayTracingHitDistance()` in `src/ray_reconstruction.cpp` takes it from that
+add-on's module at each evaluation and passes it as `pInSpecularHitDistance` beside the matrices already given. None
+is given while that add-on is absent, its RR form's reflections are off, or its count of writes has not moved for two
+evaluations; the log says when it starts and stops. rr_test passes unchanged (no ray tracing add-on there: none given).
