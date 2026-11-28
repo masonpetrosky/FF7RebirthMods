@@ -64,7 +64,8 @@ relative to the repository root unless the doc says otherwise.
   ini only, since 2026-11-25), F18 = its RR form, every effect as NVIDIA's Ray Reconstruction guide asks or today's (`RrFormKey`, test sessions' ini
   only, since 2026-11-27), F19 = its RR form's ambient light by ReSTIR GI or plain rays (`RrRestirKey`, test sessions' ini only,
   since 2026-11-27), F20 = its RR form's ambient light by guided or plain rays (`RrGuidedKey`, test sessions' ini only,
-  since 2026-11-28) (keys the keyboard doesn't have, for scripted tests), Delete =
+  since 2026-11-28), F21 = its RR form's rays on the characters, more or one (`RrCharacterRaysKey`, test sessions'
+  ini only, since 2026-11-28) (keys the keyboard doesn't have, for scripted tests), Delete =
   our ray tracing's sun shadows, ours or the game's (`..\FF7RebirthRayTracing`, `SunShadowsKey`, since 2026-11-15),
   Insert = its AO, ours or the game's (`RtAoKey`, since 2026-11-20), F2 = its ambient light, ours or the game's
   (`GiKey`, stage 5, since 2026-11-21), F1 = its ambient light's quality, low to ultra in turn (`AmbientQualityKey`,
